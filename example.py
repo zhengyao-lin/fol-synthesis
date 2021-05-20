@@ -3,17 +3,15 @@ from synthesis import *
 
 env = Z3Environment(None)
 
-field_language = Language({ "add": 2, "mult": 2, "0": 0, "1": 0 })
+ring_language = Language({ "add": 2, "mult": 2, "0": 0, "1": 0 })
 
-solver = Solver()
-
-field_z2 = Structure.from_finite_int(
+ring_z4 = Structure.from_finite_int(
     env,
-    field_language,
-    { 0, 1 },
+    ring_language,
+    { 0, 1, 2, 3 },
     {
-        "add": lambda a, b: (a + b) % 2,
-        "mult": lambda a, b: (a * b) % 2,
+        "add": lambda a, b: (a + b) % 4,
+        "mult": lambda a, b: (a * b) % 4,
         "1": 1,
         "0": 0,
     },
@@ -22,7 +20,7 @@ field_z2 = Structure.from_finite_int(
 
 field_z3 = Structure.from_finite_int(
     env,
-    field_language,
+    ring_language,
     { 0, 1, 2 },
     {
         "add": lambda a, b: (a + b) % 3,
@@ -33,22 +31,34 @@ field_z3 = Structure.from_finite_int(
     {},
 )
 
+solver = Solver()
+
 # find a term t with depth <= 3
-# such that t = 1 in Z2 but t != 1 in Z3
-term_var = TermVariable(env, field_language, 3, 0)
+# such that t = 1 in Z4 but t != 1 in Z3
+solver.push()
+term_var = TermVariable(env, ring_language, 3, 0)
 solver.add(term_var.get_well_formedness_constraint())
-solver.add(term_var.eval(field_z2, ()) == field_z2.eval_function("1", ()))
+solver.add(term_var.eval(ring_z4, ()) == ring_z4.eval_function("1", ()))
 solver.add(term_var.eval(field_z3, ()) != field_z3.eval_function("1", ()))
 
+if solver.check() == sat:
+    print(term_var.unparse_z3_model(solver.model()))
+else:
+    print("unsat")
+    
+solver.pop()
+
 # find an atomic formula phi with term depth <= 3
-# such that phi is true in Z2 but not in Z3
-atom_var = AtomicFormulaVariable(env, field_language, 2, 0)
+# such that phi is true in Z4 but not in Z3
+solver.push()
+atom_var = AtomicFormulaVariable(env, ring_language, 3, 0)
 solver.add(atom_var.get_well_formedness_constraint())
-solver.add(atom_var.eval(field_z2, ()))
+solver.add(atom_var.eval(ring_z4, ()))
 solver.add(Not(atom_var.eval(field_z3, ())))
 
-print(solver.check())
-model = solver.model()
+if solver.check() == sat:
+    print(atom_var.unparse_z3_model(solver.model()))
+else:
+    print("unsat")
 
-print(term_var.unparse_z3_model(model))
-print(atom_var.unparse_z3_model(model))
+solver.pop()

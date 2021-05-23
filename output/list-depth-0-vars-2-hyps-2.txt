@@ -1,0 +1,8 @@
+generating models
+list(x0) /\ lseg(x0, x1) => list(x1)
+lseg(x1, x0) /\ lseg(x0, nil) => lseg(x1, nil)
+unsat
+
+real	0m1.645s
+user	0m1.625s
+sys	0m0.020s

@@ -1,0 +1,24 @@
+generating models
+list(x1) /\ list(x0) /\ lseg(x1, x2) => lseg(x2, nil)
+lseg(x2, x0) /\ lseg(x0, x1) /\ list(x2) => lseg(x0, nil)
+list(x1) /\ list(x2) /\ lseg(x0, x2) => list(x0)
+lseg(x0, x2) /\ lseg(x0, x1) /\ list(x1) => list(x0)
+lseg(x2, x0) /\ lseg(x0, x1) /\ list(x1) => list(x0)
+lseg(x2, x0) /\ lseg(x2, x1) /\ list(x1) => list(x0)
+lseg(x0, x2) /\ lseg(nil, x1) /\ list(x2) => list(x0)
+lseg(nil, x0) /\ lseg(x2, x1) /\ list(x2) => lseg(x1, x0)
+lseg(x2, x1) /\ lseg(x0, x2) /\ lseg(x1, x0) => lseg(x0, x1)
+lseg(x1, x0) /\ lseg(x2, x1) /\ lseg(x0, x1) => lseg(x2, x0)
+lseg(x1, x0) /\ lseg(x2, x1) /\ lseg(x1, x2) => lseg(x2, x0)
+lseg(x1, nil) /\ lseg(x2, x1) /\ lseg(x1, x2) => lseg(x2, nil)
+list(x1) /\ lseg(x1, x2) /\ lseg(x0, x2) => list(x0)
+list(x2) /\ lseg(x2, x1) /\ lseg(x0, x2) => list(x1)
+list(x1) /\ lseg(x2, x0) /\ lseg(x1, x0) => list(x0)
+lseg(x2, x0) /\ list(x0) /\ lseg(x1, x0) => list(x1)
+lseg(x2, x1) /\ list(x2) /\ lseg(x1, x0) => list(x0)
+lseg(x0, x1) /\ lseg(x1, x2) /\ list(x0) => lseg(x0, x2)
+unsat
+
+real    3m10.989s
+user    3m10.882s
+sys     0m0.101s

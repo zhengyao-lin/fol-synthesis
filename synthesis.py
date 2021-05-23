@@ -1,5 +1,7 @@
-from typing import Dict, Optional, Tuple, Any, Callable, Set, Mapping, Union
+from typing import Dict, Optional, Tuple, Any, Callable, Set, Mapping, Union, Generator
 from dataclasses import dataclass, field
+
+import itertools
 
 import z3
 from z3 import ArithRef, BoolRef, Context, ModelRef, FuncDeclRef, AstRef, SortRef
@@ -456,3 +458,116 @@ class AtomicFormulaVariable:
         argument_stings = tuple(argument.unparse_z3_model(model) for argument in self.arguments[:arity])
 
         return f"{symbol}({', '.join(argument_stings)})"
+
+
+class HornClauseSynthesizer:
+    """
+    Synthesize (universally quantified) horn clauses in the given language
+    that are correct in a set of examples but not valid in FO-semantics
+    """
+
+    def __init__(
+        self,
+        env: Z3Environment,
+        language: Language,
+        term_depth: int,
+        max_num_vars: int,
+        max_num_hypotheses: int,
+        allow_equality_in_conclusion: bool = False,
+    ):
+        self.language = language
+        self.counterexamples = []
+        self.term_depth = term_depth
+        self.max_num_vars = max_num_vars
+        self.max_num_hypotheses = max_num_hypotheses
+        self.previous_models = []
+
+        self.env = env
+        self.solver = z3.Solver(ctx=env.context)
+        self.hypotheses = tuple(
+            AtomicFormulaVariable(self.env, language, term_depth, max_num_vars, allow_equality=False)
+            for _ in range(max_num_hypotheses)
+        )
+        self.conclusion = AtomicFormulaVariable(self.env, language, term_depth, max_num_vars, allow_equality=allow_equality_in_conclusion)
+
+        # add well-formedness constraints
+        for hyp in self.hypotheses:
+            self.solver.add(hyp.get_well_formedness_constraint())
+        self.solver.add(self.conclusion.get_well_formedness_constraint())
+
+    def add_example(self, example: Structure) -> None:
+        assert example.universe is not None, "examples have to be concrete"
+
+        for assignment in itertools.product(*([example.universe] * self.max_num_vars)):
+            self.solver.add(z3.Implies(
+                z3.And(*(hyp.eval(example, assignment) for hyp in self.hypotheses)),
+                self.conclusion.eval(example, assignment),
+            ))
+    
+    def add_counterexample(self, counterexample: Structure, assignment: Tuple[ArithRef, ...]) -> None:
+        self.solver.add(z3.Not(z3.Implies(
+            z3.And(*(hyp.eval(counterexample, assignment) for hyp in self.hypotheses)),
+            self.conclusion.eval(counterexample, assignment),
+        )))
+        self.counterexamples.append(counterexample)
+
+    def get_counterexample(self) -> Structure:
+        assert len(self.counterexamples)
+        return self.counterexamples[0]
+
+    def dismiss_previous_models(self) -> None:
+        counterexample = self.get_counterexample()
+
+        # require that any new formula is not implied by existing ones
+        # even after permutation of variables
+        assignment = tuple(z3.FreshInt(ctx=self.env.context) for _ in range(self.max_num_vars))
+
+        for permutation in itertools.permutations(assignment):
+            previous_formulas = z3.And(*(
+                z3.Implies(
+                    z3.And(*(
+                        hyp.eval_z3_model(model, counterexample, permutation)
+                        for hyp in self.hypotheses
+                    )),
+                    self.conclusion.eval_z3_model(model, counterexample, permutation),
+                )
+                for model in self.previous_models
+            ))
+
+            self.solver.add(z3.Not(z3.Implies(
+                previous_formulas,
+                z3.Implies(
+                    z3.And(*(
+                        hyp.eval(counterexample, assignment)
+                        for hyp in self.hypotheses
+                    )),
+                    self.conclusion.eval(counterexample, assignment),
+                ),
+            )))
+
+    def synthesize(self) -> Generator[str, None, None]:
+        for num_hypotheses in range(self.max_num_hypotheses + 1):
+            print(f"synthesizing formulas with {num_hypotheses} hypothesis(es)")
+            while True:
+                self.solver.push()
+
+                self.dismiss_previous_models()
+
+                # force the number of hypotheses
+                for hyp in self.hypotheses[num_hypotheses:]:
+                    self.solver.add(hyp.get_is_constant_constraint(True))
+
+                if self.solver.check() != z3.sat:
+                    self.solver.pop()
+                    break
+
+                model = self.solver.model()
+                self.solver.pop()
+
+                self.previous_models.append(model)
+
+                hypothesis_strings = tuple(hyp.unparse_z3_model(model) for hyp in self.hypotheses[:num_hypotheses])
+                hypothesis_string = " /\\ ".join(hypothesis_strings)
+                conclusion_string = self.conclusion.unparse_z3_model(model)
+
+                yield f"{hypothesis_string} => {conclusion_string}"

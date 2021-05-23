@@ -44,6 +44,11 @@ class Structure:
                f"relation {symbol} not found"
         return self.relation_interprets[symbol](*arguments)
 
+
+@dataclass
+class FiniteStructure(Structure):
+    universe: Optional[Set[int]]
+
     FunctionMapping = Union[int, Dict[int, int], Dict[Tuple[int, ...], int]]
     RelationMapping = Union[Set[int], Set[Tuple[int, ...]]]
 
@@ -85,7 +90,7 @@ class Structure:
         return macro
 
     @staticmethod
-    def from_finite_int(
+    def create(
         env: Z3Environment,
         language: Language,
         universe: Tuple[int, ...],
@@ -117,7 +122,7 @@ class Structure:
                 assert len(functions[symbol]) == universe_size ** arity, \
                        f"partially defined function for {symbol}"
 
-            parsed_functions[symbol] = Structure.get_function_macro_from_concrete_mapping(functions[symbol])
+            parsed_functions[symbol] = FiniteStructure.get_function_macro_from_concrete_mapping(functions[symbol])
 
         for symbol, arity in language.relations.items():
             assert symbol in relations, \
@@ -127,9 +132,9 @@ class Structure:
                 parsed_relations[symbol] = relations[symbol]
                 continue
 
-            parsed_relations[symbol] = Structure.get_relation_macro_from_concrete_set(relations[symbol])
+            parsed_relations[symbol] = FiniteStructure.get_relation_macro_from_concrete_set(relations[symbol])
 
-        return Structure(universe_sort, parsed_functions, parsed_relations)
+        return FiniteStructure(universe_sort, parsed_functions, parsed_relations, universe)
 
 
 class ControlVariable:
@@ -138,65 +143,27 @@ class ControlVariable:
     in the range [0, <num_options>)
     """
 
-    # def __init__(self, env: Z3Environment, num_options: int):
-    #     # find the number of bits required
-    #     self.num_bits = (num_options - 1).bit_length()
-    #     self.num_options = num_options
-    #     self.control_vars = tuple(z3.FreshBool("cv", env.context) for _ in range(num_options))
-
-    # def int_to_binary(self, num: int) -> Tuple[bool]:
-    #     bits = tuple((0 if bit == "0" else 1) for bit in bin(num)[2:][::-1])
-    #     return bits + (0,) * (self.num_bits - len(bits))
-
-    # def binary_to_int(self, bins: Tuple[bool]) -> int:
-    #     value = 0
-
-    #     for i, b in enumerate(bins):
-    #         if b:
-    #             value |= 1 << i
-        
-    #     return value
-
-    # def get_equality_constraint(self, num: int) -> BoolRef:
-    #     """
-    #     Generate a constraint saying that the variable equals to the given constant
-    #     """
-
-    #     return z3.And(*(
-    #         var if bit else z3.Not(var)
-    #         for bit, var in zip(self.int_to_binary(num), self.control_vars)
-    #     ))
-
-    # def get_range_constraint(self) -> BoolRef:
-    #     """
-    #     A constraint saying that the interpreted value is in the range [0, <num_options>)
-    #     """
-    #     return z3.And(*(
-    #         z3.Not(self.get_equality_constraint(i))
-    #         for i in range(self.num_options + 1, 2 ** self.num_bits)
-    #     ))
-
-    # def interpret_z3_model(self, model: ModelRef) -> int:
-    #     value = self.binary_to_int(tuple(model[var] for var in self.control_vars))
-    #     assert value < self.num_options, "invalid model"
-    #     return value
+    counter = 0
 
     def __init__(self, env: Z3Environment, num_options: int):
+        # find the number of bits required
+        self.num_bits = (num_options - 1).bit_length()
         self.num_options = num_options
-        self.control_var = z3.FreshInt("cv", env.context)
+        self.control_var = z3.BitVec(f"cv{ControlVariable.counter}", self.num_bits, env.context)
+        ControlVariable.counter += 1
 
-    def get_equality_constraint(self, num: ArithRef) -> BoolRef:
-        return self.control_var == num
+    def get_equality_constraint(self, num: int) -> BoolRef:
+        """
+        Generate a constraint saying that the variable equals to the given constant
+        """
+        return self.control_var == z3.BitVecVal(num, self.num_bits)
 
     def dismiss_z3_model(self, model: ModelRef) -> BoolRef:
-        """
-        Return a constraint saying that we want a different model
-        """
-        return self.control_var != model[self.control_var]
+        return z3.Not(self.get_equality_constraint(self.interpret_z3_model(model)))
 
     def interpret_z3_model(self, model: ModelRef) -> int:
         value = model[self.control_var].as_long()
-        assert 0 <= value < self.num_options, "invalid model"
+        assert value < self.num_options, "invalid model"
         return value
 
 
@@ -398,7 +365,16 @@ class AtomicFormulaVariable:
             )
 
         return constraint
-        
+
+    def get_is_constant_constraint(self, value: bool) -> BoolRef:
+        return z3.And(
+            self.control_var.get_equality_constraint(1),
+            *(argument.get_is_null_constraint() for argument in self.arguments),
+        ) if value else z3.And(
+            self.control_var.get_equality_constraint(0),
+            *(argument.get_is_null_constraint() for argument in self.arguments),
+        )
+
     def eval(self, structure: Structure, assignment: Tuple[AstRef, ...]) -> BoolRef:
         """
         Evaluate an formula to a boolean value in z3

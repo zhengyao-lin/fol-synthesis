@@ -1,55 +1,149 @@
 import itertools
 
+from typing import Generator
+
 from z3 import *
 from synthesis import *
 
-env = Z3Environment(None)
 
-list_language = Language({ "nil": 0, "n": 1 }, { "list": 1, "lseg": 2 })
+class HornClauseSynthesizer:
+    def __init__(
+        self,
+        env: Z3Environment,
+        language: Language,
+        term_depth: int,
+        max_num_vars: int,
+        max_num_hypotheses: int,
+        allow_equality_in_conclusion: bool = False,
+    ):
+        self.language = language
+        self.counterexamples = []
+        self.term_depth = term_depth
+        self.max_num_vars = max_num_vars
+        self.max_num_hypotheses = max_num_hypotheses
+        self.previous_models = []
 
-TERM_DEPTH = 0
-NUM_VARS = 3
-NUM_HYPS = 2
+        self.env = env
+        self.solver = Solver(ctx=env.context)
+        self.hypotheses = tuple(
+            AtomicFormulaVariable(self.env, language, term_depth, max_num_vars, allow_equality=False)
+            for _ in range(max_num_hypotheses)
+        )
+        self.conclusion = AtomicFormulaVariable(self.env, language, term_depth, max_num_vars, allow_equality=allow_equality_in_conclusion)
 
-hypotheses = tuple(AtomicFormulaVariable(env, list_language, TERM_DEPTH, NUM_VARS) for _ in range(NUM_HYPS))
-conclusion = AtomicFormulaVariable(env, list_language, TERM_DEPTH, NUM_VARS)
+        # add well-formedness constraints
+        for hyp in self.hypotheses:
+            self.solver.add(hyp.get_well_formedness_constraint())
+        self.solver.add(self.conclusion.get_well_formedness_constraint())
+
+    def add_example(self, example: Structure) -> None:
+        assert example.universe is not None, "examples have to be concrete"
+
+        for assignment in itertools.product(*([example.universe] * self.max_num_vars)):
+            self.solver.add(Implies(
+                And(*(hyp.eval(example, assignment) for hyp in self.hypotheses)),
+                self.conclusion.eval(example, assignment),
+            ))
+    
+    def add_counterexample(self, counterexample: Structure, assignment: Tuple[ArithRef, ...]) -> None:
+        self.solver.add(Not(Implies(
+            And(*(hyp.eval(counterexample, assignment) for hyp in self.hypotheses)),
+            self.conclusion.eval(counterexample, assignment),
+        )))
+        self.counterexamples.append(counterexample)
+
+    def get_counterexample(self) -> Structure:
+        assert len(self.counterexamples)
+        return self.counterexamples[0]
+
+    def dismiss_previous_models(self) -> None:
+        counterexample = self.get_counterexample()
+
+        # require that any new formula is not implied by existing ones
+        # even after permutation of variables
+        assignment = tuple(FreshInt(ctx=self.env.context) for _ in range(self.max_num_vars))
+
+        for permutation in itertools.permutations(assignment):
+            previous_formulas = And(*(
+                Implies(
+                    And(*(
+                        hyp.eval_z3_model(model, counterexample, permutation)
+                        for hyp in self.hypotheses
+                    )),
+                    self.conclusion.eval_z3_model(model, counterexample, permutation),
+                )
+                for model in self.previous_models
+            ))
+
+            self.solver.add(Not(Implies(
+                previous_formulas,
+                Implies(
+                    And(*(
+                        hyp.eval(counterexample, assignment)
+                        for hyp in self.hypotheses
+                    )),
+                    self.conclusion.eval(counterexample, assignment),
+                ),
+            )))
+
+    def synthesize(self) -> Generator[str, None, None]:
+        for num_hypotheses in range(self.max_num_hypotheses + 1):
+            print(f"synthesizing formulas with {num_hypotheses} hypothesis(es)")
+            while True:
+                self.solver.push()
+
+                self.dismiss_previous_models()
+
+                # force the number of hypotheses
+                for hyp in self.hypotheses[num_hypotheses:]:
+                    self.solver.add(hyp.get_is_constant_constraint(True))
+
+                if self.solver.check() != sat:
+                    self.solver.pop()
+                    break
+
+                model = self.solver.model()
+                self.solver.pop()
+
+                self.previous_models.append(model)
+
+                hypothesis_strings = tuple(hyp.unparse_z3_model(model) for hyp in self.hypotheses[:num_hypotheses])
+                hypothesis_string = " /\\ ".join(hypothesis_strings)
+                conclusion_string = self.conclusion.unparse_z3_model(model)
+
+                yield f"{hypothesis_string} => {conclusion_string}"
 
 
-def eval_hypotheses(structure, assignment):
-    return And(*(hyp.eval(structure, assignment) for hyp in hypotheses))
+def synthesize_in_list(*args, **kwargs) -> Generator[str, None, None]:
+    env = Z3Environment(None)
+    list_language = Language({ "nil": 0, "n": 1 }, { "list": 1, "lseg": 2 })
+    synthesizer = HornClauseSynthesizer(env, list_language, *args, **kwargs)
 
-
-def satisfies(solver, structure, domain):
-    for assignment in itertools.product(*([domain] * NUM_VARS)):
-        solver.add(Implies(
-            eval_hypotheses(structure, assignment),
-            conclusion.eval(structure, assignment),
-        ))
-
-
-def satisfies_examples(solver):
-    list1_domain = { 0, 1, 2, 3 }
-    list1 = Structure.from_finite_int(
-        env,
-        list_language,
-        list1_domain,
-        {
-            "nil": 0,
-            "n": {
-                0: 0,
-                1: 0,
-                2: 1,
-                3: 2,
-            },
-        },
-        {
-            "list": { 0, 1, 2, 3 },
-            "lseg": { (x, y) for x in list1_domain for y in list1_domain if x >= y }
-        },
-    )
+    ##########################
+    # load concrete examples #
+    ##########################
+    # list1_domain = { 0, 1, 2, 3 }
+    # list1 = FiniteStructure.create(
+    #     env,
+    #     list_language,
+    #     list1_domain,
+    #     {
+    #         "nil": 0,
+    #         "n": {
+    #             0: 0,
+    #             1: 0,
+    #             2: 1,
+    #             3: 2,
+    #         },
+    #     },
+    #     {
+    #         "list": { 0, 1, 2, 3 },
+    #         "lseg": { (x, y) for x in list1_domain for y in list1_domain if x >= y }
+    #     },
+    # )
 
     list2_domain = { 0, 1, 2, 3, 4, 5 }
-    list2 = Structure.from_finite_int(
+    list2 = FiniteStructure.create(
         env,
         list_language,
         list2_domain,
@@ -74,139 +168,64 @@ def satisfies_examples(solver):
         },
     )
 
-    # the formula satisfies the examples
-    satisfies(solver, list1, list1_domain)
-    satisfies(solver, list2, list2_domain)
+    # synthesizer.add_example(list1)
+    synthesizer.add_example(list2)
 
+    ################################
+    # construct the counterexample #
+    ################################
+    nil = 0
+    n_uninterp = FreshFunction(IntSort(), IntSort())
+    list_uninterp = FreshFunction(IntSort(), BoolSort())
+    lseg_uninterp = FreshFunction(IntSort(), IntSort(), BoolSort())
+    in_lseg_uninterp = FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort())
 
-def nontrivial_implication(solver):
-    # arbitrary combination of n hypotheses, where 0 <= n < len(hypotheses)
-    # should not imply the conclusion
-    for n in range(0, len(hypotheses)):
-        for combination in itertools.product(*([hypotheses] * n)):
-            free_vars = tuple(FreshInt() for _ in range(NUM_VARS))
-            solver.add(Not(Implies(
-                And(*(hyp.eval(counterexample, free_vars) for hyp in combination)),
-                conclusion.eval(counterexample, free_vars),
-            )))
-
-    # the formulas are not trivially true
-    for hyp in hypotheses:
-        solver.add(Not(hyp.eval(counterexample, tuple(FreshInt() for _ in range(NUM_VARS)))))
-
-    solver.add(Not(conclusion.eval(counterexample, tuple(FreshInt() for _ in range(NUM_VARS)))))
-
-
-########################
-# encoding constraints #
-########################
-
-solver = Solver()
-
-for hyp in hypotheses:
-    solver.add(hyp.get_well_formedness_constraint())
-solver.add(conclusion.get_well_formedness_constraint())
-
-satisfies_examples(solver)
-
-# the formula should have a counterexample in FO-semantcs
-nil_uninterp = 0
-n_uninterp = FreshFunction(IntSort(), IntSort())
-list_uninterp = FreshFunction(IntSort(), BoolSort())
-lseg_uninterp = FreshFunction(IntSort(), IntSort(), BoolSort())
-in_lseg_uninterp = FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort())
-
-in_lseg_unfold1 = lambda x, y, z: \
-    If(
-        y == z,
-        False,
-        Or(x == y, in_lseg_uninterp(x, n_uninterp(y), z))
-    )
-
-list_unfold1 = lambda x: Or(
-    x == nil_uninterp,
-    And(
-        Not(x == nil_uninterp),
-        list_uninterp(n_uninterp(x)),
-        Not(in_lseg_unfold1(x, n_uninterp(x), nil_uninterp)),
-    ),
-)
-
-lseg_unfold1 = lambda x, y: Or(
-    x == y,
-    And(
-        Not(x == y),
-        lseg_uninterp(n_uninterp(x), y),
-        Not(in_lseg_unfold1(x, n_uninterp(x), y)),
-    ),
-)
-
-counterexample = Structure(
-    IntSort(),
-    {
-        "nil": lambda: nil_uninterp,
-        "n": n_uninterp,
-    },
-    {
-        "list": list_unfold1,
-        "lseg": lseg_unfold1,
-    },
-)
-
-counterexample_assignment = tuple(FreshInt() for _ in range(NUM_VARS))
-
-solver.add(Not(Implies(
-    eval_hypotheses(counterexample, counterexample_assignment),
-    conclusion.eval(counterexample, counterexample_assignment),
-)))
-
-# some lemmas to rule out trivial formulas
-v = FreshInt()
-solver.add(ForAll([v], Implies(lseg_unfold1(v, nil_uninterp), list_unfold1(v))))
-solver.add(ForAll([v], Implies(list_unfold1(v), lseg_unfold1(v, nil_uninterp))))
-solver.add(ForAll([v], Implies(lseg_unfold1(nil_uninterp, v), v == nil_uninterp)))
-
-nontrivial_implication(solver)
-
-print("generating models")
-
-# print all possible models
-while True:
-    if solver.check() == sat:
-        model = solver.model()
-
-        hyp_strings = tuple(hyp.unparse_z3_model(model) for hyp in hypotheses)
-
-        print(
-            " /\\ ".join(hyp_strings),
-            "=>",
-            conclusion.unparse_z3_model(model),
+    in_lseg_unfold1 = lambda x, y, z: \
+        If(
+            y == z,
+            False,
+            Or(x == y, in_lseg_uninterp(x, n_uninterp(y), z))
         )
 
-        solver.add(Or(
-            *(hyp.dismiss_z3_model(model) for hyp in hypotheses),
-            conclusion.dismiss_z3_model(model),
-        ))
+    list_unfold1 = lambda x: Or(
+        x == nil,
+        And(
+            Not(x == nil),
+            list_uninterp(n_uninterp(x)),
+            Not(in_lseg_unfold1(x, n_uninterp(x), nil)),
+        ),
+    )
 
-        # require that any new formula is not implied by existing ones
-        # even after permutation of variables
-        assignment = tuple(FreshInt() for _ in range(NUM_VARS))
+    lseg_unfold1 = lambda x, y: Or(
+        x == y,
+        And(
+            Not(x == y),
+            lseg_uninterp(n_uninterp(x), y),
+            Not(in_lseg_unfold1(x, n_uninterp(x), y)),
+        ),
+    )
 
-        for permutation in itertools.permutations(assignment):
-            solver.add(Not(
-                Implies(
-                    Implies(
-                        eval_hypotheses(counterexample, permutation),
-                        conclusion.eval(counterexample, permutation),
-                    ), Implies(
-                        And(*(
-                            hyp.eval_z3_model(model, counterexample, assignment)
-                            for hyp in hypotheses
-                        )),
-                        conclusion.eval_z3_model(model, counterexample, assignment),
-                    )
-                ),
-            ))
-    else:
-        print("unsat")
-        break
+    counterexample = Structure(
+        IntSort(),
+        {
+            "nil": lambda: nil,
+            "n": n_uninterp,
+        },
+        {
+            "list": list_unfold1,
+            "lseg": lseg_unfold1,
+        },
+    )
+
+    synthesizer.add_counterexample(counterexample, tuple(FreshInt(ctx=env.context) for _ in range(synthesizer.max_num_vars)))
+
+    return synthesizer.synthesize()
+
+
+def main():
+    for formula in synthesize_in_list(term_depth=0, max_num_vars=2, max_num_hypotheses=2, allow_equality_in_conclusion=True):
+        print(formula)
+
+
+if __name__ == "__main__":
+    main()

@@ -5,7 +5,7 @@ env = Z3Environment(None)
 
 ring_language = Language({ "add": 2, "0": 0, "1": 0 })
 
-ring_z4 = Structure.from_finite_int(
+ring_z4 = FiniteStructure.create(
     env,
     ring_language,
     { 0, 1, 2, 3 },
@@ -18,7 +18,7 @@ ring_z4 = Structure.from_finite_int(
     {},
 )
 
-field_z3 = Structure.from_finite_int(
+field_z3 = FiniteStructure.create(
     env,
     ring_language,
     { 0, 1, 2 },

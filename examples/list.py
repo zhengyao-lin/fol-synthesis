@@ -2,10 +2,10 @@ from z3 import *
 from synthesis import *
 
 
-def synthesize_in_list(*args, **kwargs) -> Generator[str, None, None]:
+def synthesize(*args, **kwargs) -> Generator[str, None, None]:
     env = Z3Environment(None)
-    list_language = Language({ "nil": 0, "n": 1 }, { "list": 1, "lseg": 2 })
-    synthesizer = HornClauseSynthesizer(env, list_language, *args, **kwargs)
+    language = Language({ "nil": 0, "n": 1 }, { "list": 1, "lseg": 2 })
+    synthesizer = HornClauseSynthesizer(env, language, *args, **kwargs)
 
     ##########################
     # load concrete examples #
@@ -13,7 +13,7 @@ def synthesize_in_list(*args, **kwargs) -> Generator[str, None, None]:
     list1_domain = { 0, 1, 2, 3, 4 }
     list1 = FiniteStructure.create(
         env,
-        list_language,
+        language,
         list1_domain,
         {
             "nil": 0,
@@ -41,33 +41,33 @@ def synthesize_in_list(*args, **kwargs) -> Generator[str, None, None]:
     # construct the counterexample #
     ################################
     nil = 0
-    n_uninterp = FreshFunction(IntSort(), IntSort())
-    list_uninterp = FreshFunction(IntSort(), BoolSort())
-    lseg_uninterp = FreshFunction(IntSort(), IntSort(), BoolSort())
-    in_lseg_uninterp = FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort())
+    n = FreshFunction(IntSort(), IntSort())
+    list_unroll0 = FreshFunction(IntSort(), BoolSort())
+    lseg_unroll0 = FreshFunction(IntSort(), IntSort(), BoolSort())
+    in_lseg_unroll0 = FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort())
 
-    in_lseg_unfold1 = lambda x, y, z: \
+    in_lseg_unroll1 = lambda x, y, z: \
         If(
             y == z,
             False,
-            Or(x == y, in_lseg_uninterp(x, n_uninterp(y), z))
+            Or(x == y, in_lseg_unroll0(x, n(y), z))
         )
 
-    list_unfold1 = lambda x: Or(
+    list_unroll1 = lambda x: Or(
         x == nil,
         And(
             Not(x == nil),
-            list_uninterp(n_uninterp(x)),
-            Not(in_lseg_unfold1(x, n_uninterp(x), nil)),
+            list_unroll0(n(x)),
+            Not(in_lseg_unroll1(x, n(x), nil)),
         ),
     )
 
-    lseg_unfold1 = lambda x, y: Or(
+    lseg_unroll1 = lambda x, y: Or(
         x == y,
         And(
             Not(x == y),
-            lseg_uninterp(n_uninterp(x), y),
-            Not(in_lseg_unfold1(x, n_uninterp(x), y)),
+            lseg_unroll0(n(x), y),
+            Not(in_lseg_unroll1(x, n(x), y)),
         ),
     )
 
@@ -75,11 +75,11 @@ def synthesize_in_list(*args, **kwargs) -> Generator[str, None, None]:
         IntSort(),
         {
             "nil": lambda: nil,
-            "n": n_uninterp,
+            "n": n,
         },
         {
-            "list": list_unfold1,
-            "lseg": lseg_unfold1,
+            "list": list_unroll1,
+            "lseg": lseg_unroll1,
         },
     )
 
@@ -89,7 +89,7 @@ def synthesize_in_list(*args, **kwargs) -> Generator[str, None, None]:
 
 
 def main():
-    for formula in synthesize_in_list(term_depth=0, max_num_vars=3, max_num_hypotheses=2, allow_equality_in_conclusion=True):
+    for formula in synthesize(term_depth=0, max_num_vars=3, max_num_hypotheses=2, allow_equality_in_conclusion=True):
         print(formula)
 
 

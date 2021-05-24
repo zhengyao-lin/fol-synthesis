@@ -473,12 +473,14 @@ class HornClauseSynthesizer:
         term_depth: int,
         max_num_vars: int,
         max_num_hypotheses: int,
+        min_num_hypotheses: int = 0,
         allow_equality_in_conclusion: bool = False,
     ):
         self.language = language
         self.counterexamples = []
         self.term_depth = term_depth
         self.max_num_vars = max_num_vars
+        self.min_num_hypotheses = min_num_hypotheses
         self.max_num_hypotheses = max_num_hypotheses
         self.previous_models = []
 
@@ -546,7 +548,7 @@ class HornClauseSynthesizer:
             )))
 
     def synthesize(self) -> Generator[str, None, None]:
-        for num_hypotheses in range(self.max_num_hypotheses + 1):
+        for num_hypotheses in range(self.min_num_hypotheses, self.max_num_hypotheses + 1):
             print(f"synthesizing formulas with {num_hypotheses} hypothesis(es)")
             while True:
                 self.solver.push()

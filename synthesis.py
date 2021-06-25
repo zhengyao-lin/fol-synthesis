@@ -1,7 +1,11 @@
-from typing import Dict, Optional, Tuple, Any, Callable, Set, Mapping, Union, Generator
+from __future__ import annotations
+
+from typing import Dict, Optional, Tuple, Any, Callable, Set, Mapping, Union, Generator, Iterator
 from dataclasses import dataclass, field
 
 import itertools
+import time
+from contextlib import contextmanager
 
 import z3
 from z3 import ArithRef, BoolRef, Context, ModelRef, FuncDeclRef, AstRef, SortRef
@@ -26,6 +30,9 @@ class Language:
     def get_max_relation_arity(self) -> int:
         return max(self.relations.values()) if len(self.relations) else 0
 
+    def expand(self, functions: Dict[str, int], relations: Dict[str, int]) -> Language:
+        return Language({ **self.functions, **functions }, { **self.relations, **relations })
+
 
 @dataclass
 class Structure:
@@ -33,6 +40,7 @@ class Structure:
     Structure of an unsorted language
     """
     universe_sort: SortRef
+    language: Language
     function_interprets: Dict[str, Callable[..., AstRef]]
     relation_interprets: Dict[str, Callable[..., BoolRef]]
 
@@ -48,7 +56,7 @@ class Structure:
 
 
 @dataclass
-class FiniteStructure(Structure):
+class FiniteConcreteStructure(Structure):
     universe: Optional[Set[int]]
 
     FunctionMapping = Union[int, Dict[int, int], Dict[Tuple[int, ...], int]]
@@ -124,7 +132,7 @@ class FiniteStructure(Structure):
                 assert len(functions[symbol]) == universe_size ** arity, \
                        f"partially defined function for {symbol}"
 
-            parsed_functions[symbol] = FiniteStructure.get_function_macro_from_concrete_mapping(functions[symbol])
+            parsed_functions[symbol] = FiniteConcreteStructure.get_function_macro_from_concrete_mapping(functions[symbol])
 
         for symbol, arity in language.relations.items():
             assert symbol in relations, \
@@ -134,9 +142,122 @@ class FiniteStructure(Structure):
                 parsed_relations[symbol] = relations[symbol]
                 continue
 
-            parsed_relations[symbol] = FiniteStructure.get_relation_macro_from_concrete_set(relations[symbol])
+            parsed_relations[symbol] = FiniteConcreteStructure.get_relation_macro_from_concrete_set(relations[symbol])
 
-        return FiniteStructure(universe_sort, parsed_functions, parsed_relations, universe)
+        return FiniteConcreteStructure(universe_sort, language, parsed_functions, parsed_relations, universe)
+
+
+@dataclass
+class FiniteSymbolicStructure(Structure):
+    universe: Tuple[ArithRef, ...]
+    function_overrides: Tuple[str, ...] = ()
+    relation_overrides: Tuple[str, ...] = ()
+
+    # TODO: add constraint saying that it's not
+    # isomorphic to any of the existing models
+
+    def iterate_universe(self, arity: int) -> Iterator[Tuple[ArithRef, ...]]:
+        return itertools.product(self.universe, repeat=arity)
+
+    def get_constraints(self) -> BoolRef:
+        """
+        Get a constraint saying that the model is well-formed
+        """
+
+        constraints = [] # [ z3.Distinct(*self.universe) ]
+
+        for function_name, arity in self.language.functions.items():
+            if function_name not in self.function_overrides:
+                function = self.function_interprets[function_name]
+                constraints.append(z3.And(*(
+                    z3.Or(*(function(*args) == var for var in self.universe))
+                    for args in self.iterate_universe(arity)
+                )))
+
+        return z3.And(*constraints)
+
+    def interpret_z3_model(self, model: ModelRef) -> Structure:
+        """
+        Obtain a concrete structure from the given z3 model
+        """
+        universe: Set[int] = set()
+        functions: Dict[str, Callable[..., ArithRef]] = {}
+        relations: Dict[str, Callable[..., BoolRef]] = {}
+
+        for var in self.universe:
+            universe.add(model[var].as_long())
+
+        for function_name, arity in self.language.functions.items():
+            if function_name in self.function_overrides:
+                functions[function_name] = self.function_interprets[function_name]
+            else:
+                declaration = self.function_interprets[function_name]
+
+                if arity == 0 and model[declaration()] is None:
+                    # just pick anything from the domain
+                    function = model[self.universe[0]]
+                else:
+                    function = (lambda decl: lambda *args: model.eval(decl(*args)))(declaration)
+
+                functions[function_name] = function
+
+        for relation_name in self.language.relations:
+            if relation_name in self.relation_overrides:
+                relations[relation_name] = self.relation_interprets[relation_name]
+            else:
+                declaration = self.relation_interprets[relation_name]
+
+                if model[declaration] is None:
+                    relation = lambda *args: False
+                else:
+                    relation = (lambda decl: lambda *args: model.eval(decl(*args)))(declaration)
+
+                relations[relation_name] = relation
+
+        return FiniteConcreteStructure(z3.IntSort(), self.language, functions, relations, universe)
+
+    @staticmethod
+    def create(
+        env: Z3Environment,
+        language: Language,
+        domain_size: int,
+        function_overrides: Dict[str, Callable[..., ArithRef]] = {},
+        relation_overrides: Dict[str, Callable[..., BoolRef]] = {},
+    ):
+        """
+        1. Generate <domain_size> Int variables, functions, and relations
+        2. State that they are disjoint
+        3. For each function, state that they are closed within the domain
+        """
+
+        domain_vars = tuple(z3.FreshInt(ctx=env.context) for _ in range(domain_size))
+        functions: Dict[str, Callable[..., ArithRef]] = function_overrides.copy()
+        relations: Dict[str, Callable[..., BoolRef]] = relation_overrides.copy()
+
+        for function_name, arity in language.functions.items():
+            if function_name in functions:
+                continue
+
+            if arity == 0:
+                function = (lambda i: lambda: i)(z3.FreshInt(ctx=env.context))
+            else:
+                function = z3.FreshFunction(*(z3.IntSort() for _ in range(arity)), z3.IntSort())
+            
+            functions[function_name] = function
+
+        
+        for relation_name, arity in language.relations.items():
+            if relation_name in relations:
+                continue
+
+            relations[relation_name] = z3.FreshFunction(*(z3.IntSort() for _ in range(arity)), z3.BoolSort())
+
+        return FiniteSymbolicStructure(
+            z3.IntSort(), language, functions, relations,
+            universe=domain_vars,
+            function_overrides=tuple(function_overrides.keys()),
+            relation_overrides=tuple(relation_overrides.keys()),
+        )
 
 
 class ControlVariable:
@@ -470,55 +591,116 @@ class HornClauseSynthesizer:
         self,
         env: Z3Environment,
         language: Language,
-        term_depth: int,
+        hypothesis_term_depth: int,
+        conclusion_term_depth: int,
         max_num_vars: int,
         max_num_hypotheses: int,
         min_num_hypotheses: int = 0,
         allow_equality_in_conclusion: bool = False,
     ):
+        self.env = env
         self.language = language
-        self.counterexamples = []
-        self.term_depth = term_depth
+        self.hypothesis_term_depth = hypothesis_term_depth
+        self.conclusion_term_depth = conclusion_term_depth
         self.max_num_vars = max_num_vars
         self.min_num_hypotheses = min_num_hypotheses
         self.max_num_hypotheses = max_num_hypotheses
         self.previous_models = []
 
-        self.env = env
-        self.solver = z3.Solver(ctx=env.context)
+        self.syn_counterexample: Optional[Structure] = None
+        self.ver_counterexample: Optional[FiniteSymbolicStructure] = None
+        self.ver_assignment: Optional[Tuple[ArithRef, ...]] = None # assignment to free vars
+        
+        # one solver for synthesis and another for verification
+        self.syn_solver = z3.Solver(ctx=env.context)
+        self.ver_solver = z3.Solver(ctx=env.context)
+
         self.hypotheses = tuple(
-            AtomicFormulaVariable(self.env, language, term_depth, max_num_vars, allow_equality=False)
+            AtomicFormulaVariable(self.env, language, hypothesis_term_depth, max_num_vars, allow_equality=False)
             for _ in range(max_num_hypotheses)
         )
-        self.conclusion = AtomicFormulaVariable(self.env, language, term_depth, max_num_vars, allow_equality=allow_equality_in_conclusion)
+        self.conclusion = AtomicFormulaVariable(self.env, language, conclusion_term_depth, max_num_vars, allow_equality=allow_equality_in_conclusion)
 
         # add well-formedness constraints
         for hyp in self.hypotheses:
-            self.solver.add(hyp.get_well_formedness_constraint())
-        self.solver.add(self.conclusion.get_well_formedness_constraint())
+            self.add_synthesis_constraint(hyp.get_well_formedness_constraint())
+        self.add_synthesis_constraint(self.conclusion.get_well_formedness_constraint())
+
+    def add_common_constraint(self, constraint: BoolRef) -> None:
+        self.syn_solver.add(constraint)
+        self.ver_solver.add(constraint)
+
+    def add_synthesis_constraint(self, constraint: BoolRef) -> None:
+        self.syn_solver.add(constraint)
+
+    def add_verification_constraint(self, constraint: BoolRef) -> None:
+        self.ver_solver.add(constraint)
+
+    def eval_formula_with_z3_model(self, model: ModelRef, structure: Structure, assignment: Tuple[AstRef, ...]) -> BoolRef:
+        """
+        The formula is fixed by the given z3 model, then evaluate such formula on the given structure
+        """
+        return z3.Implies(
+            z3.And(*(
+                hyp.eval_z3_model(model, structure, assignment)
+                for hyp in self.hypotheses
+            )),
+            self.conclusion.eval_z3_model(model, structure, assignment),
+        )
+
+    def eval_formula(self, structure: Structure, assignment: Tuple[AstRef, ...]) -> BoolRef:
+        """
+        Evaluate the undetermined formula on the given structure
+        """
+        return z3.Implies(
+            z3.And(*(
+                hyp.eval(structure, assignment)
+                for hyp in self.hypotheses
+            )),
+            self.conclusion.eval(structure, assignment),
+        )
 
     def add_example(self, example: Structure) -> None:
         assert example.universe is not None, "examples have to be concrete"
 
         for assignment in itertools.product(*([example.universe] * self.max_num_vars)):
-            self.solver.add(z3.Implies(
+            self.add_synthesis_constraint(z3.Implies(
                 z3.And(*(hyp.eval(example, assignment) for hyp in self.hypotheses)),
                 self.conclusion.eval(example, assignment),
             ))
     
-    def add_counterexample(self, counterexample: Structure, assignment: Tuple[ArithRef, ...]) -> None:
-        self.solver.add(z3.Not(z3.Implies(
-            z3.And(*(hyp.eval(counterexample, assignment) for hyp in self.hypotheses)),
-            self.conclusion.eval(counterexample, assignment),
-        )))
-        self.counterexamples.append(counterexample)
+    def set_synthesis_counterexample(self, counterexample: Structure, assignment: Tuple[ArithRef, ...]) -> None:
+        self.add_synthesis_constraint(z3.Not(self.eval_formula(counterexample, assignment)))
+        self.syn_counterexample = counterexample
 
-    def get_counterexample(self) -> Structure:
-        assert len(self.counterexamples)
-        return self.counterexamples[0]
+    def set_verification_counterexample(self, counterexample: FiniteSymbolicStructure) -> None:
+        self.ver_counterexample = counterexample
+        self.add_verification_constraint(counterexample.get_constraints())
+
+        assignment = []
+
+        for _ in range(self.max_num_vars):
+            var = z3.FreshInt()
+            self.add_verification_constraint(z3.Or(*(
+                var == domain_var
+                for domain_var in counterexample.universe
+            )))
+            assignment.append(var)
+        
+        self.ver_assignment = tuple(assignment)
+
+    def dismiss_model(self, model: ModelRef) -> None:
+        counterexample = self.syn_counterexample
+        assert counterexample is not None
+
+        assignment = tuple(z3.FreshInt(ctx=self.env.context) for _ in range(self.max_num_vars))
+        self.add_synthesis_constraint(
+            z3.ForAll(assignment, self.eval_formula_with_z3_model(model, counterexample, assignment)),
+        )
 
     def dismiss_previous_models(self) -> None:
-        counterexample = self.get_counterexample()
+        counterexample = self.syn_counterexample
+        assert counterexample is not None
 
         # require that any new formula is not implied by existing ones
         # even after permutation of variables
@@ -526,50 +708,100 @@ class HornClauseSynthesizer:
 
         for permutation in itertools.permutations(assignment):
             previous_formulas = z3.And(*(
-                z3.Implies(
-                    z3.And(*(
-                        hyp.eval_z3_model(model, counterexample, permutation)
-                        for hyp in self.hypotheses
-                    )),
-                    self.conclusion.eval_z3_model(model, counterexample, permutation),
-                )
+                self.eval_formula_with_z3_model(model, counterexample, permutation)
                 for model in self.previous_models
             ))
 
-            self.solver.add(z3.Not(z3.Implies(
+            self.add_synthesis_constraint(z3.Not(z3.Implies(
                 previous_formulas,
-                z3.Implies(
-                    z3.And(*(
-                        hyp.eval(counterexample, assignment)
-                        for hyp in self.hypotheses
-                    )),
-                    self.conclusion.eval(counterexample, assignment),
-                ),
+                self.eval_formula(counterexample, assignment),
             )))
 
+    @contextmanager
+    def push_synthesis_solver(self) -> Generator[None, None, None]:
+        try:
+            self.syn_solver.push()
+            yield
+        finally:
+            self.syn_solver.pop()
+
+    @contextmanager
+    def push_verification_solver(self) -> Generator[None, None, None]:
+        try:
+            self.ver_solver.push()
+            yield
+        finally:
+            self.ver_solver.pop()
+
+    def print_finite_structure(self, structure: FiniteConcreteStructure) -> None:
+        print(f"universe: {structure.universe}")
+
+        for function_name, arity in structure.language.functions.items():
+            print(f"function {function_name}:")
+            for args in itertools.product(structure.universe, repeat=arity):
+                print(f" - {args} |-> {structure.eval_function(function_name, args)}")
+
+        for relation_name, arity in structure.language.relations.items():
+            print(f"relation {relation_name}:")
+            for args in itertools.product(structure.universe, repeat=arity):
+                if structure.eval_relation(relation_name, args):
+                    print(f" - {args}")
+
+    def unparse_z3_model(self, model: ModelRef) -> str:
+        hypothesis_strings = tuple(hyp.unparse_z3_model(model) for hyp in self.hypotheses)
+        hypothesis_strings = tuple(hyp for hyp in hypothesis_strings if hyp != "⊤")
+        hypothesis_string = " /\\ ".join(hypothesis_strings)
+        conclusion_string = self.conclusion.unparse_z3_model(model)
+
+        if len(hypothesis_strings):
+            return f"{hypothesis_string} => {conclusion_string}"
+        else:
+            return f"{conclusion_string}"
+
     def synthesize(self) -> Generator[str, None, None]:
+        assert self.syn_counterexample is not None and \
+               self.ver_counterexample is not None
+
         for num_hypotheses in range(self.min_num_hypotheses, self.max_num_hypotheses + 1):
             print(f"synthesizing formulas with {num_hypotheses} hypothesis(es)")
             while True:
-                self.solver.push()
+                begin = time.time()
 
-                self.dismiss_previous_models()
+                # Step 1: synthesis
+                with self.push_synthesis_solver():
+                    # self.dismiss_previous_models()
 
-                # force the number of hypotheses
-                for hyp in self.hypotheses[num_hypotheses:]:
-                    self.solver.add(hyp.get_is_constant_constraint(True))
+                    # force the number of hypotheses
+                    for hyp in self.hypotheses[num_hypotheses:]:
+                        self.add_synthesis_constraint(hyp.get_is_constant_constraint(True))
 
-                if self.solver.check() != z3.sat:
-                    self.solver.pop()
-                    break
+                    if self.syn_solver.check() != z3.sat:
+                        print(f"no more valid formulas with {num_hypotheses} hypothesis(es), elapsed: {round(time.time() - begin, 2)}s")
+                        break
 
-                model = self.solver.model()
-                self.solver.pop()
+                    model = self.syn_solver.model()
 
-                self.previous_models.append(model)
+                formula_string = self.unparse_z3_model(model)
+                print(f"verifying {formula_string}", end="", flush=True)
 
-                hypothesis_strings = tuple(hyp.unparse_z3_model(model) for hyp in self.hypotheses[:num_hypotheses])
-                hypothesis_string = " /\\ ".join(hypothesis_strings)
-                conclusion_string = self.conclusion.unparse_z3_model(model)
+                # Step 2: verification
+                # check if the generated model is valid among verification structures
+                with self.push_verification_solver():
+                    self.add_verification_constraint(
+                        z3.Not(self.eval_formula_with_z3_model(model, self.ver_counterexample, self.ver_assignment)),
+                    )
+                    
+                    result = self.ver_solver.check()
 
-                yield f"{hypothesis_string} => {conclusion_string}"
+                    if result == z3.sat:
+                        ver_model = self.ver_solver.model()
+                        counterexample = self.ver_counterexample.interpret_z3_model(ver_model)
+                        # self.print_finite_structure(counterexample)
+                        self.add_example(counterexample)
+                        print(f" - rejected, elapsed {round(time.time() - begin, 2)}s")
+                    else:
+                        assert result == z3.unsat
+                        self.previous_models.append(model)
+                        self.dismiss_model(model)
+                        print(f" - accepted, elapsed {round(time.time() - begin, 2)}s")
+                        yield formula_string

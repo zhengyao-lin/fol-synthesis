@@ -4,14 +4,25 @@ from synthesis import *
 
 def synthesize(*args, **kwargs) -> Generator[str, None, None]:
     env = Z3Environment(None)
-    language = Language({ "nil": 0, "n": 1 }, { "list": 1, "lseg": 2 })
+    language = Language(
+        { "nil": 0, "n": 1 },
+        {
+            "list": 1,
+            "lseg": 2,
+            # "len": 2,
+        })
     synthesizer = HornClauseSynthesizer(env, language, *args, **kwargs)
 
     ##########################
     # load concrete examples #
     ##########################
+
+    # 2 -> 1 -> 0 = nil
+    # 4 -> 3 -> 3
+    # 5 -> 1
+    # list(x) /\ list(y) /\ x != y => n(x) != n(y)
     list1_domain = { 0, 1, 2, 3, 4 }
-    list1 = FiniteStructure.create(
+    list1 = FiniteConcreteStructure.create(
         env,
         language,
         list1_domain,
@@ -31,7 +42,12 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
                 (3, 3),
                 (4, 3),
                 (4, 4),
-            })
+            }),
+            "len": {
+                (0, 0),
+                (1, 1),
+                (2, 2),
+            }
         },
     )
 
@@ -45,6 +61,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
     list_unroll0 = FreshFunction(IntSort(), BoolSort())
     lseg_unroll0 = FreshFunction(IntSort(), IntSort(), BoolSort())
     in_lseg_unroll0 = FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort())
+    len_unroll0 = FreshFunction(IntSort(), IntSort(), BoolSort())
 
     in_lseg_unroll1 = lambda x, y, z: \
         If(
@@ -71,6 +88,16 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
         ),
     )
 
+    len_unroll1 = lambda x, y: Or(
+        z3.And(x == nil, y == 0),
+        z3.And(
+            x != nil,
+            y > 0,
+            len_unroll0(n(x), y - 1),
+            Not(in_lseg_unroll1(x, n(x), nil)),
+        ),
+    )
+
     counterexample = Structure(
         IntSort(),
         {
@@ -80,6 +107,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
         {
             "list": list_unroll1,
             "lseg": lseg_unroll1,
+            "len": len_unroll1,
         },
     )
 
@@ -89,7 +117,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
 
 
 def main():
-    for formula in synthesize(term_depth=0, max_num_vars=3, max_num_hypotheses=2, allow_equality_in_conclusion=True):
+    for formula in synthesize(term_depth=1, max_num_vars=3, max_num_hypotheses=2, allow_equality_in_conclusion=True):
         print(formula)
 
 

@@ -10,6 +10,8 @@ from contextlib import contextmanager
 import z3
 from z3 import ArithRef, BoolRef, Context, ModelRef, FuncDeclRef, AstRef, SortRef
 
+from ansi import ANSI
+
 
 @dataclass
 class Z3Environment:
@@ -188,14 +190,14 @@ class FiniteSymbolicStructure(Structure):
             universe.add(model[var].as_long())
 
         for function_name, arity in self.language.functions.items():
-            if function_name in self.function_overrides:
+            if function_name in self.function_overrides and function_name != "v" and function_name != "key": # TODO: hacky!
                 functions[function_name] = self.function_interprets[function_name]
             else:
                 declaration = self.function_interprets[function_name]
 
                 if arity == 0 and model[declaration()] is None:
                     # just pick anything from the domain
-                    function = model[self.universe[0]]
+                    function = lambda: model[self.universe[0]]
                 else:
                     function = (lambda decl: lambda *args: model.eval(decl(*args)))(declaration)
 
@@ -290,6 +292,50 @@ class ControlVariable:
         return value
 
 
+@dataclass
+class Application:
+    """
+    Application is used to represent terms and atomic relations
+    """
+    name: str
+    arguments: Tuple[Application, ...]
+
+    @staticmethod
+    def parse(src: str) -> Application:
+        """
+        Parse an application from the source, and return the parsed length
+        """
+        src = src.replace(" ", "")
+
+        first_paren = src.find("(")
+        if first_paren == -1:
+            return Application(src, ())
+
+        assert src.endswith(")")
+        name = src[:first_paren]
+        inner = src[first_paren + 1:-1]
+        argument_texts = []
+
+        if len(inner):
+            begin = 0
+            nested = 0
+            for i, char in enumerate(inner):
+                if char == "," and nested == 0:
+                    argument_texts.append(inner[begin:i])
+                    begin = i + 1
+                elif char == "(":
+                    nested += 1
+                elif char == ")":
+                    assert nested != 0, "failed to parse src"
+                    nested -= 1
+
+            argument_texts.append(inner[begin:])
+
+        arguments = tuple(Application.parse(argument_text) for argument_text in argument_texts)
+
+        return Application(name, arguments)
+
+
 class TermVariable:
     """
     An undetermined term
@@ -305,6 +351,7 @@ class TermVariable:
     def __init__(self, env: Z3Environment, language: Language, depth: int, num_vars: int):
         assert depth >= 0 and num_vars >= 0
 
+        self.language = language
         self.functions = tuple(language.functions.items())
         self.depth = depth
         self.num_vars = num_vars
@@ -415,6 +462,33 @@ class TermVariable:
             ),
         )
 
+    def dismiss_application(self, application: Application) -> BoolRef:
+        """
+        Get a constraint to rule out this particular application
+        """
+
+        if application.name == "<variable>":
+            return z3.And(*(z3.Not(self.control_var.get_equality_constraint(i)) for i in range(1, 1 + self.num_vars)))
+
+        if application.name == "<any>":
+            return False
+
+        assert application.name in self.language.functions and \
+               len(application.arguments) == self.language.functions[application.name], \
+               f"{application} is not a valid term"
+
+        cv_index = 1 + self.num_vars + self.functions.index((application.name, len(application.arguments)))
+        constraint = z3.Not(self.control_var.get_equality_constraint(cv_index))
+
+        if self.depth != 0:
+            for i, argument in enumerate(application.arguments):
+                constraint = z3.Or(self.subterms[i].dismiss_application(argument), constraint)
+
+            for i, argument in enumerate(application.arguments):
+                constraint = z3.And(self.subterms[i].dismiss_application(application), constraint)
+
+        return constraint
+
     def unparse_z3_model(self, model: ModelRef) -> str:
         """
         Unparse a term from the given model
@@ -453,6 +527,7 @@ class AtomicFormulaVariable:
     """
 
     def __init__(self, env: Z3Environment, language: Language, term_depth: int, num_vars: int, allow_equality: bool = False):
+        self.language = language
         self.relations = tuple(language.relations.items())
         self.allow_equality = allow_equality
         self.control_var = ControlVariable(env, 3 + len(self.relations))
@@ -554,6 +629,23 @@ class AtomicFormulaVariable:
             ),
         )
 
+    def dismiss_application(self, application: Application) -> BoolRef:
+        """
+        Get a constraint to rule out this particular application
+        """
+
+        assert application.name in self.language.relations and \
+               len(application.arguments) == self.language.relations[application.name], \
+               f"{application} is not a valid atomic relation"
+
+        cv_index = 3 + self.relations.index((application.name, len(application.arguments)))
+        constraint = z3.Not(self.control_var.get_equality_constraint(cv_index))
+
+        for i, argument in enumerate(application.arguments):
+            constraint = z3.Or(self.arguments[i].dismiss_application(argument), constraint)
+
+        return constraint
+
     def unparse_z3_model(self, model: ModelRef) -> str:
         """
         Unparse a formula from the given model
@@ -625,6 +717,29 @@ class HornClauseSynthesizer:
         for hyp in self.hypotheses:
             self.add_synthesis_constraint(hyp.get_well_formedness_constraint())
         self.add_synthesis_constraint(self.conclusion.get_well_formedness_constraint())
+
+    def dismiss_term(self, application: Application) -> None:
+        """
+        Require that the given application does not occur as a term
+        """
+        constraint = True
+
+        for formula_var in self.hypotheses + (self.conclusion,):
+            for argument in formula_var.arguments:
+                constraint = z3.And(argument.dismiss_application(application), constraint)
+
+        self.add_synthesis_constraint(constraint)
+
+    def dismiss_atomic_formula(self, application: Application) -> None:
+        """
+        Require that the given application does not occur as an atomic formula
+        """
+        constraint = True
+
+        for formula_var in self.hypotheses + (self.conclusion,):
+            constraint = z3.And(formula_var.dismiss_application(application), constraint)
+
+        self.add_synthesis_constraint(constraint)
 
     def add_common_constraint(self, constraint: BoolRef) -> None:
         self.syn_solver.add(constraint)
@@ -782,7 +897,7 @@ class HornClauseSynthesizer:
                     model = self.syn_solver.model()
 
                 formula_string = self.unparse_z3_model(model)
-                print(f"verifying {formula_string}", end="", flush=True)
+                print(ANSI.in_gray(f"verifying {formula_string}"), end="", flush=True)
 
                 # Step 2: verification
                 # check if the generated model is valid among verification structures
@@ -798,10 +913,10 @@ class HornClauseSynthesizer:
                         counterexample = self.ver_counterexample.interpret_z3_model(ver_model)
                         # self.print_finite_structure(counterexample)
                         self.add_example(counterexample)
-                        print(f" - rejected, elapsed {round(time.time() - begin, 2)}s")
+                        print(ANSI.in_gray(f" - rejected, elapsed {round(time.time() - begin, 2)}s"))
                     else:
                         assert result == z3.unsat
                         self.previous_models.append(model)
                         self.dismiss_model(model)
-                        print(f" - accepted, elapsed {round(time.time() - begin, 2)}s")
+                        print(ANSI.in_gray(f" - accepted, elapsed {round(time.time() - begin, 2)}s"))
                         yield formula_string

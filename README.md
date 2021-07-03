@@ -69,8 +69,8 @@ ph1 /\ ph2 => ph3
 ```
 where `ph1`, `ph2`, `ph3` are atomic formulas with 0 term depth (i.e. only variables can be terms), and number of universally quantified variables bounded by 3.
 
-To start synthesizing, we need to specify two symbolic counterexapmles:
- - One counterexample used in synthesis to rule make sure the formula is NOT FO-provable.
+Before synthesizing, we need to specify two symbolic counterexapmles:
+ - One counterexample used in synthesis to make sure the formula is NOT FO-provable.
  - One (finite) counterexample used in verification of synthesized formulas
 
 See `examples/list.py` for more details of these two structures (they are `syn_counterexample_unrolled` and `ver_counterexample` respectively in the example).

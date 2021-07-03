@@ -10,6 +10,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
             "list": 1,
             "dlist": 1,
             "dlseg": 2,
+            "rev": 2,
         },
     )
     expanded_language = language.expand(
@@ -21,52 +22,16 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
     )
     synthesizer = HornClauseSynthesizer(env, language, *args, **kwargs)
 
-    ##########################
-    # load concrete examples #
-    ##########################
-    # list1_domain = { 0, 1, 2, 3, 4 }
-    # list1 = FiniteConcreteStructure.create(
-    #     env,
-    #     language,
-    #     list1_domain,
-    #     {
-    #         "nil": 0,
-    #         "next": {
-    #             0: 0,
-    #             1: 0,
-    #             2: 1,
-    #             3: 3,
-    #             4: 3,
-    #         },
-    #         "prev": {
-    #             0: 0,
-    #             1: 2,
-    #             2: 2,
-    #             3: 4,
-    #             4: 4,
-    #         }
-    #     },
-    #     {
-    #         "list": { 0, 1, 2 },
-    #         "dlist": { 0, 1 },
-    #     },
-    # )
-
-    # synthesizer.add_example(list1)
-
-    ################################
-    # construct the counterexample #
-    ################################
-
     apply_nil = lambda structure: structure.eval_function("nil", ())
     apply_n = lambda structure, x: structure.eval_function("n", (x,))
     apply_p = lambda structure, x: structure.eval_function("p", (x,))
     apply_list = lambda structure, x: structure.eval_relation("list", (x,))
     apply_dlist = lambda structure, x: structure.eval_relation("dlist", (x,))
     apply_dlseg = lambda structure, x, y: structure.eval_relation("dlseg", (x, y))
+    apply_rev = lambda structure, x, y: structure.eval_relation("rev", (x, y))
     apply_in_lsegf = lambda structure, x, y, z: structure.eval_relation("in_lsegf", (x, y, z))
     apply_in_lsegb = lambda structure, x, y, z: structure.eval_relation("in_lsegb", (x, y, z))
-    
+
     in_lsegf_defn = lambda structure, x, y, z: \
         If(
             y == z,
@@ -113,6 +78,11 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
         ),
     )
 
+    rev_defn = lambda structure, x, y: Or(
+        z3.And(x == apply_nil(structure), y == apply_nil(structure)),
+        z3.And(x == y, apply_rev(structure, apply_n(structure, x), apply_p(structure, y)))
+    )
+
     syn_counterexample_unrolled = Structure(
         IntSort(),
         expanded_language,
@@ -125,6 +95,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
             "list": FreshFunction(IntSort(), BoolSort()),
             "dlist": FreshFunction(IntSort(), BoolSort()),
             "dlseg": FreshFunction(IntSort(), IntSort(), BoolSort()),
+            "rev": FreshFunction(IntSort(), IntSort(), BoolSort()),
             "in_lsegf": FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort()),
             "in_lsegb": FreshFunction(IntSort(), IntSort(), IntSort(), BoolSort()),
         },
@@ -139,6 +110,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
                 "list": (lambda structure: lambda x: list_defn(structure, x))(syn_counterexample_unrolled),
                 "dlist": (lambda structure: lambda x: dlist_defn(structure, x))(syn_counterexample_unrolled),
                 "dlseg": (lambda structure: lambda x, y: dlseg_defn(structure, x, y))(syn_counterexample_unrolled),
+                "rev": (lambda structure: lambda x, y: rev_defn(structure, x, y))(syn_counterexample_unrolled),
                 "in_lsegf": (lambda structure: lambda x, y, z: in_lsegf_defn(structure, x, y, z))(syn_counterexample_unrolled),
                 "in_lsegb": (lambda structure: lambda x, y, z: in_lsegb_defn(structure, x, y, z))(syn_counterexample_unrolled),
             },
@@ -170,6 +142,7 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
                 "list": (lambda structure: lambda x: list_defn(structure, x))(ver_counterexample_unrolled),
                 "dlist": (lambda structure: lambda x: dlist_defn(structure, x))(ver_counterexample_unrolled),
                 "dlseg": (lambda structure: lambda x, y: dlseg_defn(structure, x, y))(ver_counterexample_unrolled),
+                "rev": (lambda structure: lambda x, y: rev_defn(structure, x, y))(ver_counterexample_unrolled),
                 "in_lsegf": (lambda structure: lambda x, y, z: in_lsegf_defn(structure, x, y, z))(ver_counterexample_unrolled),
                 "in_lsegb": (lambda structure: lambda x, y, z: in_lsegb_defn(structure, x, y, z))(ver_counterexample_unrolled),
             },
@@ -191,6 +164,12 @@ def synthesize(*args, **kwargs) -> Generator[str, None, None]:
         synthesizer.add_verification_constraint(
             ver_counterexample.eval_relation("dlseg", (x, y)) == \
             dlseg_defn(ver_counterexample_unrolled, x, y),
+        )
+
+    for x, y in ver_counterexample.iterate_universe(2):
+        synthesizer.add_verification_constraint(
+            ver_counterexample.eval_relation("rev", (x, y)) == \
+            rev_defn(ver_counterexample_unrolled, x, y),
         )
 
     for x, y, z in ver_counterexample.iterate_universe(3):
@@ -215,7 +194,7 @@ def main():
         hypothesis_term_depth=0,
         conclusion_term_depth=0,
         max_num_vars=3,
-        max_num_hypotheses=2,
+        max_num_hypotheses=3,
         allow_equality_in_conclusion=False,
     ):
         print(formula)

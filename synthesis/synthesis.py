@@ -1,4 +1,4 @@
-from typing import Any, Generic, TypeVar, Tuple
+from typing import Any, Generic, TypeVar, Tuple, Mapping
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -66,6 +66,9 @@ class TermVariable(VariableWithConstraint[Term]):
         else:
             self.subterms = ()
 
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        return self.free_vars
+
     def get_constraint(self) -> smt.SMTTerm:
         """
         The term can be of any sort
@@ -126,11 +129,11 @@ class TermVariable(VariableWithConstraint[Term]):
                         ),
                         constraint,
                     )
-            elif self.depth != 0:
+            else:
                 symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
+                arity = len(symbol.input_sorts)
 
-                if symbol.output_sort == sort:
-                    arity = len(symbol.input_sorts)
+                if symbol.output_sort == sort and (self.depth != 0 or arity == 0):
                     constraint = smt.Or(
                         smt.And(
                             self.node.equals(node_value),
@@ -143,8 +146,44 @@ class TermVariable(VariableWithConstraint[Term]):
 
         return constraint
 
+    def interpret_in_structure(self, sort: Sort, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        """
+        Interpret the undetermined term in the given structure and valuation
+        """
 
-class AtomicFormulaVariable(VariableWithConstraint[AtomicFormula]):
+        carrier = structure.interpret_sort(sort)
+        interp = smt.FreshSymbol(carrier.get_smt_sort())
+
+        for node_value in range(1, len(self.free_vars) + len(self.language.function_symbols) + 1):
+            if node_value <= len(self.free_vars):
+                variable = self.free_vars[node_value - 1]
+                if variable.sort == sort:
+                    assert variable in valuation, f"unable to interpret variable {variable}"
+                    interp = smt.Ite(self.node.equals(node_value), valuation[variable], interp)
+
+            else:
+                symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
+                arity = len(symbol.input_sorts)
+
+                if symbol.output_sort == sort and (self.depth != 0 or arity == 0):
+                    arguments = tuple(
+                        subterm.interpret_in_structure(subterm_sort, structure, valuation)
+                        for subterm_sort, subterm in zip(symbol.input_sorts, self.subterms[:arity])
+                    )
+                    interp = smt.Ite(self.node.equals(node_value), structure.interpret_function(symbol, *arguments), interp)
+
+        return interp
+
+
+class FormulaVariable(VariableWithConstraint[Formula]):
+    @abstractmethod
+    def get_free_variables(self) -> Tuple[Variable, ...]: ...
+
+    @abstractmethod
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm: ...
+
+
+class AtomicFormulaVariable(FormulaVariable):
     """
     Template for an atomic formula (i.e. false, true, or other relations)
     """
@@ -156,6 +195,9 @@ class AtomicFormulaVariable(VariableWithConstraint[AtomicFormula]):
         self.node = BoundedIntegerVariable(0, 2 + len(language.relation_symbols))
 
         self.subterms = tuple(TermVariable(language, free_vars, term_depth) for _ in range(language.get_max_relation_arity()))
+
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        return self.free_vars
 
     def get_constraint(self) -> smt.SMTTerm:
         return self.get_well_formedness_constraint()
@@ -175,7 +217,7 @@ class AtomicFormulaVariable(VariableWithConstraint[AtomicFormula]):
             arity = len(symbol.input_sorts)
             return RelationApplication(symbol, tuple(subterm.get_from_model(model) for subterm in self.subterms[:arity]))
 
-    def equals(self, value: AtomicFormula) -> smt.SMTTerm:
+    def equals(self, value: Formula) -> smt.SMTTerm:
         """
         Return a constraint saying that the variable equals the given atomic formula
         """
@@ -220,3 +262,137 @@ class AtomicFormulaVariable(VariableWithConstraint[AtomicFormula]):
                 )
 
         return constraint
+
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        """
+        Interpret the undetermined atomic formula in the given structure and valuation
+        """
+
+        interp = smt.FALSE()
+
+        for node_value in range(0, 2 + len(self.language.relation_symbols)):
+            if node_value == 0:
+                interp = smt.Ite(self.node.equals(node_value), smt.FALSE(), interp)
+
+            elif node_value == 1:
+                interp = smt.Ite(self.node.equals(node_value), smt.TRUE(), interp)
+
+            else:
+                symbol = self.language.relation_symbols[node_value - 2]
+                arity = len(symbol.input_sorts)
+                arguments = tuple(
+                    subterm.interpret_in_structure(sort, structure, valuation)
+                    for sort, subterm in zip(symbol.input_sorts, self.subterms[:arity])
+                )
+                interp = smt.Ite(self.node.equals(node_value), structure.interpret_relation(symbol, *arguments), interp)
+
+        return interp
+
+
+@dataclass
+class ConjunctionFormulaVariable(FormulaVariable):
+    conjuncts: Tuple[FormulaVariable, ...]
+
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        return tuple(set(sum(map(lambda c: c.get_free_variables(), self.conjuncts), ())))
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.And(*(conjunct.get_constraint() for conjunct in self.conjuncts))
+
+    def get_from_model(self, model: smt.SMTModel) -> Formula:
+        assert len(self.conjuncts) != 0
+        conjuncts = tuple(conjunct.get_from_model(model) for conjunct in self.conjuncts)
+        formula = conjuncts[-1]
+
+        for conjunct in conjuncts[:-1][::-1]:
+            formula = Conjunction(conjunct, formula)
+
+        return formula
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert len(self.conjuncts) != 0
+        
+        constraint = smt.TRUE()
+
+        for i, conjunct in enumerate(self.conjuncts):
+            if i + 1 != len(self.conjuncts):
+                assert isinstance(value, Conjunction)
+                constraint = smt.And(conjunct.equals(value.left), constraint)
+                value = value.right
+            else:
+                constraint = smt.And(conjunct.equals(value), constraint)
+
+        return constraint
+
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.And(*(
+            conjunct.interpret_in_structure(structure, valuation)
+            for conjunct in self.conjuncts
+        ))
+
+
+@dataclass
+class ImplicationFormulaVariable(FormulaVariable):
+    left: FormulaVariable
+    right: FormulaVariable
+
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        # TODO: order?
+        return tuple(set(self.left.get_free_variables() + self.right.get_free_variables()))
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.And(self.left.get_constraint(), self.right.get_constraint())
+
+    def get_from_model(self, model: smt.SMTModel) -> Formula:
+        return Implication(self.left.get_from_model(model), self.right.get_from_model(model))
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, Implication)
+        return smt.And(self.left.equals(value.left), self.right.equals(value.right))
+
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.Implies(
+            self.left.interpret_in_structure(structure, valuation),
+            self.right.interpret_in_structure(structure, valuation),
+        )
+
+
+@dataclass
+class ForAllBlockFormulaVariable(FormulaVariable):
+    variables: Tuple[Variable, ...]
+    body: FormulaVariable
+
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        return tuple(var for var in self.body.get_free_variables() if var not in self.variables)
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return self.body.get_constraint()
+
+    def get_from_model(self, model: smt.SMTModel) -> Formula:
+        """
+        Get a concrete atomic formula from the model
+        """
+        formula = self.body.get_from_model(model)
+
+        for var in self.variables[::-1]:
+            formula = UniversalQuantification(var, formula)
+
+        return formula
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        for var in self.variables:
+            assert isinstance(value, UniversalQuantification) and value.variable == var, \
+                   f"cannot match the first quantifiers with variables {self.variables}"
+            value = value.body
+
+        return self.body.equals(value)
+
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        fresh_vars = { var: smt.FreshSymbol(structure.interpret_sort(var.sort).get_smt_sort()) for var in self.variables }
+        interp = self.body.interpret_in_structure(structure, { **valuation, **fresh_vars })
+
+        for var in self.variables[::-1]:
+            carrier = structure.interpret_sort(var.sort)
+            interp = carrier.universally_quantify(fresh_vars[var], interp)
+
+        return interp

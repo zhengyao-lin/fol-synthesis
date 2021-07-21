@@ -10,7 +10,7 @@ sort_b = UninterpretedSort("B")
 
 language = Language(
     (sort_a, sort_b),
-    (FunctionSymbol((sort_a, sort_b), sort_a, "f"), FunctionSymbol((sort_a,), sort_b, "g")),
+    (FunctionSymbol((sort_a, sort_b), sort_a, "f"), FunctionSymbol((sort_a,), sort_b, "g"), FunctionSymbol((), sort_b, "nil")),
     (RelationSymbol((sort_a, sort_b), "R"),),
 )
 
@@ -25,7 +25,6 @@ def exhaust_variable(var: VariableWithConstraint[Any]) -> None:
             print(val)
             solver.add_assertion(Not(var.equals(val)))
 
-
 # term_var = TermVariable(language, free_vars, 2)
-atomic_formula_var = AtomicFormulaVariable(language, free_vars, 1)
+atomic_formula_var = AtomicFormulaVariable(language, free_vars, 0)
 exhaust_variable(atomic_formula_var)

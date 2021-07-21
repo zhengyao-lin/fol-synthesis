@@ -112,22 +112,34 @@ class Conjunction(Formula):
     left: Formula
     right: Formula
 
+    def __str__(self) -> str:
+        return f"({self.left} /\\ {self.right})"
+
 
 @dataclass(frozen=True)
 class Disjunction(Formula):
     left: Formula
     right: Formula
 
+    def __str__(self) -> str:
+        return f"({self.left} \\/ {self.right})"
+
 
 @dataclass(frozen=True)
 class Negation(Formula):
     formula: Formula
+
+    def __str__(self) -> str:
+        return f"not {self.formula}"
 
 
 @dataclass(frozen=True)
 class Implication(Formula):
     left: Formula
     right: Formula
+
+    def __str__(self) -> str:
+        return f"({self.left} -> {self.right})"
 
 
 @dataclass(frozen=True)
@@ -136,17 +148,26 @@ class Equivalence(Formula):
     right: Formula
     lfp: bool = False
 
+    def __str__(self) -> str:
+        return f"({self.left} <-> {self.right})"
+
 
 @dataclass(frozen=True)
 class UniversalQuantification(Formula):
     variable: Variable
     body: Formula
 
+    def __str__(self) -> str:
+        return f"(forall {self.variable}. {self.body})"
+
 
 @dataclass(frozen=True)
 class ExistentialQuantification(Formula):
     variable: Variable
     body: Formula
+
+    def __str__(self) -> str:
+        return f"(exists {self.variable}. {self.body})"
 
 
 @dataclass(frozen=True)

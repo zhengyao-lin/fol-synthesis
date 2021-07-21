@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Callable
+from typing import Tuple, Dict, Callable, Mapping
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -8,6 +8,9 @@ from . import smt
 
 
 class CarrierSet(ABC):
+    @abstractmethod
+    def get_smt_sort(self) -> smt.SMTSort: ...
+
     @abstractmethod
     def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm: ...
 
@@ -32,7 +35,58 @@ class Structure(ABC):
     def interpret_function(self, symbol: FunctionSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm: ...
 
     @abstractmethod
-    def interpret_relation(self, symbol: FunctionSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm: ...
+    def interpret_relation(self, symbol: RelationSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm: ...
+
+    def interpret_term(self, term: Term, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+        if isinstance(term, Variable):
+            assert term in valuation, f"variable {term} not provided in the valuation {valuation}"
+            return valuation[term]
+
+        elif isinstance(term, Application):
+            arguments = (self.interpret_term(argument, valuation) for argument in term.arguments)
+            return self.interpret_function(term.function_symbol, *arguments)
+
+        assert False, f"unable to interpret {term}"
+
+    def interpret_formula(self, formula: Formula, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+        if isinstance(formula, Verum):
+            return smt.TRUE()
+
+        elif isinstance(formula, Falsum):
+            return smt.FALSE()
+
+        elif isinstance(formula, RelationApplication):
+            arguments = (self.interpret_term(argument, valuation) for argument in formula.arguments) 
+            return self.interpret_relation(formula.relation_symbol, *arguments)
+
+        elif isinstance(formula, Negation):
+            return smt.Not(self.interpret_formula(formula.formula, valuation))
+
+        elif isinstance(formula, Conjunction):
+            return smt.And(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+
+        elif isinstance(formula, Disjunction):
+            return smt.Or(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+
+        elif isinstance(formula, Implication):
+            return smt.Implies(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+
+        elif isinstance(formula, Equivalence):
+            return smt.Iff(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+
+        elif isinstance(formula, UniversalQuantification):
+            carrier = self.interpret_sort(formula.variable.sort)
+            smt_var = smt.FreshSymbol(carrier.get_smt_sort())
+            body = self.interpret_formula(formula.body, { **valuation, formula.variable: smt_var })
+            return carrier.universally_quantify(smt_var, body)
+
+        elif isinstance(formula, ExistentialQuantification):
+            carrier = self.interpret_sort(formula.variable.sort)
+            smt_var = smt.FreshSymbol(carrier.get_smt_sort())
+            body = self.interpret_formula(formula.body, { **valuation, formula.variable: smt_var })
+            return carrier.existentially_quantify(smt_var, body)
+
+        assert False, f"unable to interpret {formula}"
 
 
 @dataclass
@@ -44,13 +98,15 @@ class RefinementCarrierSet(CarrierSet):
     sort: smt.SMTSort
     predicate: Callable[[smt.SMTTerm], smt.SMTTerm] = lambda _: smt.TRUE()
 
+    def get_smt_sort(self) -> smt.SMTSort:
+        return self.sort
+
     def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
         return smt.ForAll((variable,), smt.Implies(self.predicate(variable), formula))
 
     def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Exists((variable,), smt.And(self.predicate(variable), formula))
     
-    @abstractmethod
     def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable:
         var = smt.FreshSymbol(self.sort)
         solver.add_assertion(self.predicate(var))
@@ -62,13 +118,15 @@ class FiniteCarrierSet(CarrierSet):
     sort: smt.SMTSort
     collection: Tuple[smt.SMTTerm, ...]
 
+    def get_smt_sort(self) -> smt.SMTSort:
+        return self.sort
+
     def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
         return smt.And(*(formula.substitute({ variable: element }) for element in self.collection))
 
     def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Or(*(formula.substitute({ variable: element }) for element in self.collection))
     
-    @abstractmethod
     def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable:
         var = smt.FreshSymbol(self.sort)
         solver.add_assertion(smt.Or(*(smt.Equals(var, element) for element in self.collection)))
@@ -80,7 +138,7 @@ class SymbolicStructure(Structure):
     language: Language
     carriers: Dict[Sort, CarrierSet]
     function_interpretations: Dict[FunctionSymbol, Callable[..., smt.SMTTerm]]
-    relation_interpretations: Dict[FunctionSymbol, Callable[..., smt.SMTTerm]]
+    relation_interpretations: Dict[RelationSymbol, Callable[..., smt.SMTTerm]]
 
     def interpret_sort(self, sort: Sort) -> CarrierSet:
         return self.carriers[sort]
@@ -88,5 +146,5 @@ class SymbolicStructure(Structure):
     def interpret_function(self, symbol: FunctionSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm:
         return self.function_interpretations[symbol](*arguments)
 
-    def interpret_relation(self, symbol: FunctionSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm:
+    def interpret_relation(self, symbol: RelationSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm:
         return self.relation_interpretations[symbol](*arguments)

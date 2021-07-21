@@ -1,6 +1,6 @@
+from typing import Any
 
-from pysmt.shortcuts import get_model, Solver, Not
-
+from synthesis.smt import get_model, Solver, Not
 from synthesis.fol.ast import *
 from synthesis.synthesis import *
 
@@ -11,17 +11,21 @@ sort_b = UninterpretedSort("B")
 language = Language(
     (sort_a, sort_b),
     (FunctionSymbol((sort_a, sort_b), sort_a, "f"), FunctionSymbol((sort_a,), sort_b, "g")),
-    (),
+    (RelationSymbol((sort_a, sort_b), "R"),),
 )
 
 free_vars = (Variable("x", sort_a), Variable("y", sort_b))
 
-term_var = TermVariable(language, free_vars, 2)
+def exhaust_variable(var: VariableWithConstraint[Any]) -> None:
+    with Solver(name="z3") as solver:
+        var.add_to_solver(solver)
 
-with Solver(name="z3") as solver:
-    term_var.add_to_solver(solver)
+        while solver.solve():
+            val = var.get_from_model(solver.get_model())
+            print(val)
+            solver.add_assertion(Not(var.equals(val)))
 
-    while solver.solve():
-        term = term_var.get_from_model(solver.get_model())
-        print(term)
-        solver.add_assertion(Not(term_var.equals(term)))
+
+# term_var = TermVariable(language, free_vars, 2)
+atomic_formula_var = AtomicFormulaVariable(language, free_vars, 1)
+exhaust_variable(atomic_formula_var)

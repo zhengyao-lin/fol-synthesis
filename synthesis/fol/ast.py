@@ -4,7 +4,7 @@ AST for many-sorted first order logic with equality
 
 from __future__ import annotations
 
-from typing import Tuple, Any
+from typing import Tuple, Any, Union, Optional
 from dataclasses import dataclass
 
 
@@ -23,7 +23,9 @@ class Sort(BaseAST):
 class UninterpretedSort(Sort): ...
 
 
-class SMTSort(Sort): ...
+@dataclass(frozen=True)
+class InterpretedSort(Sort):
+    smt_hook: str # SMT counterpart
 
 
 @dataclass(frozen=True)
@@ -31,12 +33,14 @@ class FunctionSymbol(BaseAST):
     input_sorts: Tuple[Sort, ...]
     output_sort: Sort
     name: str
+    smt_hook: Optional[str] = None # if set, the function is interpreted as an SMT function
 
 
 @dataclass(frozen=True)
 class RelationSymbol(BaseAST):
     input_sorts: Tuple[Sort, ...]
     name: str
+    smt_hook: Optional[str] = None # if set, the function is interpreted as an SMT function
 
 
 class Term(BaseAST):
@@ -58,7 +62,6 @@ class UnsortedVariable(Term):
     A temporary construct for parsing
     """
     name: str
-    
 
 
 @dataclass(frozen=True)
@@ -76,11 +79,13 @@ class Formula(BaseAST):
 
 
 class Verum(Formula):
-    ...
+    def __str__(self) -> str:
+        return "⊤"
 
 
 class Falsum(Formula):
-    ...
+    def __str__(self) -> str:
+        return "⊥"
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,13 @@ class Equality(Formula):
 class RelationApplication(Formula):
     relation_symbol: RelationSymbol
     arguments: Tuple[Term, ...]
+
+    def __str__(self) -> str:
+        argument_string = ", ".join((str(arg) for arg in self.arguments))
+        return f"{self.relation_symbol.name}({argument_string})"
+
+
+AtomicFormula = Union[Verum, Falsum, RelationApplication]
 
 
 @dataclass(frozen=True)
@@ -147,4 +159,7 @@ class Language:
     relation_symbols: Tuple[RelationSymbol, ...]
 
     def get_max_function_arity(self) -> int:
-        return max(tuple(len(symbol.input_sorts) for symbol in self.function_symbols))
+        return max(tuple(len(symbol.input_sorts) for symbol in self.function_symbols) + (0,))
+
+    def get_max_relation_arity(self) -> int:
+        return max(tuple(len(symbol.input_sorts) for symbol in self.relation_symbols) + (0,))

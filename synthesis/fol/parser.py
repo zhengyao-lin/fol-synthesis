@@ -43,7 +43,7 @@ sentence: "sort" IDENTIFIER
         | "constant" IDENTIFIER ":" IDENTIFIER
         | "relation" IDENTIFIER ":" IDENTIFIER*
         | "fixpoint" IDENTIFIER "(" [variable ("," variable)*] ")" "=" fol_formula
-        | "assert" fol_formula
+        | "axiom" fol_formula
 
 fol_terms: [fol_term ("," fol_term)*]
 
@@ -101,7 +101,7 @@ theory LIST extending INT SET
 
     fixpoint R(x) = forall x:S . x = x /\ x = y:S \/ not forall x:S . not x = x \/ not exists y:S. true
 
-    assert forall x. R(x) /\ not R(x)
+    axiom forall x. R(x) /\ not R(x)
 end
 """.strip()))
 

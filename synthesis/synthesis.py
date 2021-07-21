@@ -293,6 +293,9 @@ class AtomicFormulaVariable(FormulaVariable):
 class ConjunctionFormulaVariable(FormulaVariable):
     conjuncts: Tuple[FormulaVariable, ...]
 
+    def __post_init__(self) -> None:
+        assert len(self.conjuncts) != 0
+
     def get_free_variables(self) -> Tuple[Variable, ...]:
         return tuple(set(sum(map(lambda c: c.get_free_variables(), self.conjuncts), ())))
 
@@ -300,7 +303,6 @@ class ConjunctionFormulaVariable(FormulaVariable):
         return smt.And(*(conjunct.get_constraint() for conjunct in self.conjuncts))
 
     def get_from_model(self, model: smt.SMTModel) -> Formula:
-        assert len(self.conjuncts) != 0
         conjuncts = tuple(conjunct.get_from_model(model) for conjunct in self.conjuncts)
         formula = conjuncts[-1]
 
@@ -310,8 +312,6 @@ class ConjunctionFormulaVariable(FormulaVariable):
         return formula
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert len(self.conjuncts) != 0
-        
         constraint = smt.TRUE()
 
         for i, conjunct in enumerate(self.conjuncts):

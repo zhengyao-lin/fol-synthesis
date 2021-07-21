@@ -141,10 +141,22 @@ class SymbolicStructure(Structure):
     relation_interpretations: Dict[RelationSymbol, Callable[..., smt.SMTTerm]]
 
     def interpret_sort(self, sort: Sort) -> CarrierSet:
+        if sort not in self.carriers:
+            assert isinstance(sort, InterpretedSort), f"unable to interpret sort {sort}"
+            return RefinementCarrierSet(sort.smt_hook)
+
         return self.carriers[sort]
 
     def interpret_function(self, symbol: FunctionSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm:
+        if symbol not in self.function_interpretations:
+            assert symbol.smt_hook is not None, f"unable to interpret function symbol {symbol}"
+            return symbol.smt_hook(*arguments)
+
         return self.function_interpretations[symbol](*arguments)
 
     def interpret_relation(self, symbol: RelationSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm:
+        if symbol not in self.relation_interpretations:
+            assert symbol.smt_hook is not None, f"unable to interpret relation symbol {symbol}"
+            return symbol.smt_hook(*arguments)
+
         return self.relation_interpretations[symbol](*arguments)

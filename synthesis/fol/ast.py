@@ -4,7 +4,7 @@ AST for many-sorted first order logic with equality
 
 from __future__ import annotations
 
-from typing import Tuple, Any, Union, Optional, Callable, Mapping
+from typing import Tuple, Any, Union, Optional, Callable, Mapping, Set
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -43,6 +43,9 @@ class Term(BaseAST, ABC):
     @abstractmethod
     def substitute(self, substitution: Mapping[Variable, Term]) -> Term: ...
 
+    @abstractmethod
+    def get_free_variables(self) -> Set[Variable]: ...
+
 
 @dataclass(frozen=True)
 class Variable(Term):
@@ -56,6 +59,9 @@ class Variable(Term):
         if self in substitution:
             return substitution[self]
         return self
+
+    def get_free_variables(self) -> Set[Variable]:
+        return { self }
 
 
 # @dataclass
@@ -72,16 +78,26 @@ class Application(Term):
     arguments: Tuple[Term, ...]
 
     def __str__(self) -> str:
+        if len(self.arguments) == 0: return self.function_symbol.name
         argument_string = ", ".join((str(arg) for arg in self.arguments))
         return f"{self.function_symbol.name}({argument_string})"
 
     def substitute(self, substitution: Mapping[Variable, Term]) -> Term:
         return Application(self.function_symbol, tuple(argument.substitute(substitution) for argument in self.arguments))
 
+    def get_free_variables(self) -> Set[Variable]:
+        free_vars = set()
+        for argument in self.arguments:
+            free_vars.update(argument.get_free_variables())
+        return free_vars
+
 
 class Formula(BaseAST, ABC):
     @abstractmethod
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula: ...
+
+    @abstractmethod
+    def get_free_variables(self) -> Set[Variable]: ...
 
 
 class Verum(Formula):
@@ -91,6 +107,9 @@ class Verum(Formula):
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
         return self
 
+    def get_free_variables(self) -> Set[Variable]:
+        return set()
+
 
 class Falsum(Formula):
     def __str__(self) -> str:
@@ -98,6 +117,9 @@ class Falsum(Formula):
 
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
         return self
+
+    def get_free_variables(self) -> Set[Variable]:
+        return set()
 
 
 # @dataclass(frozen=True)
@@ -118,6 +140,12 @@ class RelationApplication(Formula):
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
         return RelationApplication(self.relation_symbol, tuple(argument.substitute(substitution) for argument in self.arguments))
 
+    def get_free_variables(self) -> Set[Variable]:
+        free_vars = set()
+        for argument in self.arguments:
+            free_vars.update(argument.get_free_variables())
+        return free_vars
+
 
 AtomicFormula = Union[Verum, Falsum, RelationApplication]
 
@@ -136,6 +164,9 @@ class Conjunction(Formula):
             self.right.substitute(substitution),
         )
 
+    def get_free_variables(self) -> Set[Variable]:
+        return self.left.get_free_variables().union(self.right.get_free_variables())
+
 
 @dataclass(frozen=True)
 class Disjunction(Formula):
@@ -151,6 +182,9 @@ class Disjunction(Formula):
             self.right.substitute(substitution),
         )
 
+    def get_free_variables(self) -> Set[Variable]:
+        return self.left.get_free_variables().union(self.right.get_free_variables())
+
 
 @dataclass(frozen=True)
 class Negation(Formula):
@@ -161,6 +195,9 @@ class Negation(Formula):
 
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
         return Negation(self.formula.substitute(substitution))
+
+    def get_free_variables(self) -> Set[Variable]:
+        return self.formula.get_free_variables()
 
 
 @dataclass(frozen=True)
@@ -177,6 +214,9 @@ class Implication(Formula):
             self.right.substitute(substitution),
         )
 
+    def get_free_variables(self) -> Set[Variable]:
+        return self.left.get_free_variables().union(self.right.get_free_variables())
+
 
 @dataclass(frozen=True)
 class Equivalence(Formula):
@@ -192,6 +232,9 @@ class Equivalence(Formula):
             self.right.substitute(substitution),
         )
 
+    def get_free_variables(self) -> Set[Variable]:
+        return self.left.get_free_variables().union(self.right.get_free_variables())
+
 
 @dataclass(frozen=True)
 class UniversalQuantification(Formula):
@@ -205,6 +248,9 @@ class UniversalQuantification(Formula):
         if self.variable in substitution:
             substitution = { k: v for k, v in substitution.items() if k != self.variable }
         return UniversalQuantification(self.variable, self.body.substitute(substitution))
+
+    def get_free_variables(self) -> Set[Variable]:
+        return self.body.get_free_variables().difference({ self.variable })
 
 
 @dataclass(frozen=True)
@@ -220,6 +266,9 @@ class ExistentialQuantification(Formula):
             substitution = { k: v for k, v in substitution.items() if k != self.variable }
         return ExistentialQuantification(self.variable, self.body.substitute(substitution))
 
+    def get_free_variables(self) -> Set[Variable]:
+        return self.body.get_free_variables().difference({ self.variable })
+
 
 class Sentence(BaseAST): ...
 
@@ -234,7 +283,7 @@ class FixpointDefinition(Sentence):
         """
         Return a formula describing the fixpoint (not necessarily an LFP)
         """
-        formula = Equivalence(RelationApplication(self.relation_symbol, self.variables), self.definition)
+        formula: Formula = Equivalence(RelationApplication(self.relation_symbol, self.variables), self.definition)
 
         for var in self.variables[::-1]:
             formula = UniversalQuantification(var, formula)

@@ -185,6 +185,26 @@ class FormulaVariable(VariableWithConstraint[Formula]):
     def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm: ...
 
 
+class ConstantFormula(FormulaVariable):
+    def __init__(self, formula: Formula):
+        self.formula = formula
+
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        return tuple(self.formula.get_free_variables())
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.TRUE()
+
+    def get_from_model(self, model: smt.SMTModel) -> Formula:
+        return self.formula
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        return smt.TRUE() if value == self.formula else smt.FALSE()
+
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+        return structure.interpret_formula(self.formula, valuation)
+
+
 class AtomicFormulaVariable(FormulaVariable):
     """
     Template for an atomic formula (i.e. false, true, or other relations)
@@ -400,7 +420,7 @@ class ForAllBlockFormulaVariable(FormulaVariable):
         return interp
 
 
-class ModelVariable(VariableWithConstraint[Structure]): ...
+class ModelVariable(VariableWithConstraint[Structure], Structure): ...
 
 
 class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
@@ -578,7 +598,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
 
 class UninterpretedStructure(SymbolicStructure):
     """
-    A model in which all uninterpreted sorts are assigned
+    A structure in which all uninterpreted sorts are assigned
     the carrier INT and all uninterpreted functions/relations
     are assigned uninterpreted SMT functions
     """
@@ -608,9 +628,9 @@ class UninterpretedStructure(SymbolicStructure):
 
 class FOProvableStructure(UninterpretedStructure):
     """
-    This is a structure such that in a theory with fixpoint definitions,
+    A structure such that in a theory with fixpoint definitions,
     if a formula phi is FO-provable with <unfold_depth> unfoldings of the
-    fixpoint definitions, then the structure should satisfy phi.
+    fixpoint definitions, then the structure satisfies phi.
     """
 
     def __init__(self, theory: Theory, unfold_depth: int):
@@ -643,6 +663,11 @@ class FOProvableStructure(UninterpretedStructure):
 
 
 class CEIGSynthesizer:
+    """
+    Synthesize formulas that are (approximately) LFP-valid in a given theory
+    but not FO-provable under some unfolding depth
+    """
+
     def __init__(
         self,
         theory: Theory,
@@ -663,6 +688,8 @@ class CEIGSynthesizer:
         self.fo_provable_structure = FOProvableStructure(theory, fo_provable_depth)
 
     def synthesize(self, solver_name: str = "z3") -> Generator[Formula, None, None]:
+        free_vars = self.formula_var.get_free_variables()
+
         with smt.Solver(name=solver_name) as gen_solver, smt.Solver(name=solver_name) as check_solver:
             # gen_solver is used to generate candidates
             # check_solver is used to generate counterexamples
@@ -675,11 +702,11 @@ class CEIGSynthesizer:
             # become existentially quantified, we do skolemization here
             gen_skolem_constants = { # for the fo provable structure
                 v: self.fo_provable_structure.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
-                for v in self.formula_var.get_free_variables()
+                for v in free_vars
             }
             check_skolem_constants = { # for the counterexample
                 v: self.counterexample_var.interpret_sort(v.sort).get_fresh_constant(check_solver, v.sort)
-                for v in self.formula_var.get_free_variables()
+                for v in free_vars
             }
 
             # the formula should not be FO provable
@@ -691,27 +718,39 @@ class CEIGSynthesizer:
                 print(candidate, "... ", end="", flush=True)
 
                 # try to find a finite counterexample
+                check_solver.push()
                 check_solver.add_assertion(smt.Not(self.counterexample_var.interpret_formula(candidate, check_skolem_constants)))
 
                 if check_solver.solve():
                     # a concrete counterexample
                     counterexample = self.counterexample_var.get_from_model(check_solver.get_model())
+                    check_solver.pop()
+
+                    # carrier = counterexample.interpret_sort(Sort("Pointer"))
+                    # print(carrier.domain)
+                    # print("nil", counterexample.interpret_function(self.theory.language.function_symbols[0]))
+                    # print("left", tuple(counterexample.interpret_function(self.theory.language.function_symbols[1], element) for element in carrier.domain))
+                    # print("right", tuple(counterexample.interpret_function(self.theory.language.function_symbols[2], element) for element in carrier.domain))
+                    # print("key", tuple(counterexample.interpret_function(self.theory.language.function_symbols[3], element) for element in carrier.domain))
+                    # print("btree", tuple(counterexample.interpret_relation(self.theory.language.relation_symbols[0], element) for element in carrier.domain))
+                    # print("bst", tuple(counterexample.interpret_relation(self.theory.language.relation_symbols[1], element) for element in carrier.domain))
 
                     # add the new counterexample
                     print("✘")
                     gen_solver.add_assertion(
                         ForAllBlockFormulaVariable(
-                            self.formula_var.get_free_variables(),
+                            free_vars,
                             self.formula_var,
                         ).interpret_in_structure(counterexample),
                     )
                 else:
+                    check_solver.pop()
                     # no counterexample found, maybe this is true
                     print("✓")
 
                     # add duplication-avoidance constraint
                     for assignment in itertools.permutations(gen_skolem_constants.values()):
-                        permuted_skolem_constants = dict(zip(self.formula_var.get_free_variables(), assignment))
+                        permuted_skolem_constants = dict(zip(free_vars, assignment))
                         gen_solver.add_assertion(self.fo_provable_structure.interpret_formula(candidate, permuted_skolem_constants))
 
                     # output the candidate

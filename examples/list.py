@@ -1,8 +1,5 @@
 from typing import Any
 
-import itertools
-
-from synthesis.smt import get_model, Solver, Not, Equals, BOOL, INT, FunctionType, FreshSymbol, Apply
 from synthesis import smt
 from synthesis.fol.ast import *
 from synthesis.synthesis import *
@@ -10,14 +7,13 @@ from synthesis.structure import *
 
 
 sort_pointer = Sort("Pointer")
-sort_int = Sort("Int", INT)
 
 nil_symbol = FunctionSymbol((), sort_pointer, "nil")
 next_symbol = FunctionSymbol((sort_pointer,), sort_pointer, "next")
 list_symbol = RelationSymbol((sort_pointer,), "list")
 lseg_symbol = RelationSymbol((sort_pointer, sort_pointer), "lseg")
 in_lseg_symbol = RelationSymbol((sort_pointer, sort_pointer, sort_pointer), "in_lseg")
-pointer_eq_symbol = RelationSymbol((sort_pointer, sort_pointer), "eq", smt_hook=lambda x, y: Equals(x, y))
+pointer_eq_symbol = RelationSymbol((sort_pointer, sort_pointer), "eq", smt_hook=lambda x, y: smt.Equals(x, y))
 
 language = Language(
     (sort_pointer,),
@@ -80,5 +76,5 @@ synt_var = ImplicationFormulaVariable(
 )
 model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 
-for formula in CEIGSynthesizer(theory, synt_var, model_var, 2).synthesize():
-    print("### found", formula)
+for formula in CEIGSynthesizer(theory, synt_var, model_var, 2).synthesize(): ...
+    # print("### found", formula)

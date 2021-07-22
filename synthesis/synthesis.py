@@ -1,10 +1,12 @@
-from typing import Any, Generic, TypeVar, Tuple, Mapping, Dict
+from typing import Any, Generic, TypeVar, Tuple, Mapping, Dict, Generator
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
+import itertools
+
 from .fol.ast import *
-from .structure import CarrierSet, Structure, FiniteCarrierSet, SymbolicStructure
+from .structure import CarrierSet, Structure, FiniteCarrierSet, SymbolicStructure, RefinementCarrierSet
 from . import smt
 
 T = TypeVar("T")
@@ -146,7 +148,7 @@ class TermVariable(VariableWithConstraint[Term]):
 
         return constraint
 
-    def interpret_in_structure(self, sort: Sort, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+    def interpret_in_structure(self, sort: Sort, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
         """
         Interpret the undetermined term in the given structure and valuation
         """
@@ -180,7 +182,7 @@ class FormulaVariable(VariableWithConstraint[Formula]):
     def get_free_variables(self) -> Tuple[Variable, ...]: ...
 
     @abstractmethod
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm: ...
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm: ...
 
 
 class AtomicFormulaVariable(FormulaVariable):
@@ -263,7 +265,7 @@ class AtomicFormulaVariable(FormulaVariable):
 
         return constraint
 
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
         """
         Interpret the undetermined atomic formula in the given structure and valuation
         """
@@ -324,7 +326,7 @@ class ConjunctionFormulaVariable(FormulaVariable):
 
         return constraint
 
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
         return smt.And(*(
             conjunct.interpret_in_structure(structure, valuation)
             for conjunct in self.conjuncts
@@ -350,7 +352,7 @@ class ImplicationFormulaVariable(FormulaVariable):
         assert isinstance(value, Implication)
         return smt.And(self.left.equals(value.left), self.right.equals(value.right))
 
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
         return smt.Implies(
             self.left.interpret_in_structure(structure, valuation),
             self.right.interpret_in_structure(structure, valuation),
@@ -387,7 +389,7 @@ class ForAllBlockFormulaVariable(FormulaVariable):
 
         return self.body.equals(value)
 
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
         fresh_vars = { var: smt.FreshSymbol(structure.interpret_sort(var.sort).get_smt_sort()) for var in self.variables }
         interp = self.body.interpret_in_structure(structure, { **valuation, **fresh_vars })
 
@@ -398,7 +400,10 @@ class ForAllBlockFormulaVariable(FormulaVariable):
         return interp
 
 
-class FiniteLFPModelVariable(SymbolicStructure, VariableWithConstraint[Structure]):
+class ModelVariable(VariableWithConstraint[Structure]): ...
+
+
+class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
     """
     A variable/template for a finite LFP model of a given theory
     """
@@ -569,3 +574,145 @@ class FiniteLFPModelVariable(SymbolicStructure, VariableWithConstraint[Structure
 
     def equals(self, value: Structure) -> smt.SMTTerm:
         raise NotImplementedError()
+
+
+class UninterpretedStructure(SymbolicStructure):
+    """
+    A model in which all uninterpreted sorts are assigned
+    the carrier INT and all uninterpreted functions/relations
+    are assigned uninterpreted SMT functions
+    """
+
+    def __init__(self, language: Language):
+        carriers: Dict[Sort, CarrierSet] = {}
+        function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = {}
+        relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = {}
+
+        for sort in language.sorts:
+            if sort.smt_hook is None:
+                carriers[sort] = RefinementCarrierSet(smt.INT)
+
+        for function_symbol in language.function_symbols:
+            if function_symbol.smt_hook is None:
+                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in function_symbol.input_sorts)
+                smt_output_sort = function_symbol.output_sort.smt_hook or smt.INT
+                function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
+
+        for relation_symbol in language.relation_symbols:
+            if relation_symbol.smt_hook is None:
+                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
+                relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
+
+        super().__init__(language, carriers, function_interpretations, relation_interpretations)
+
+
+class FOProvableStructure(UninterpretedStructure):
+    """
+    This is a structure such that in a theory with fixpoint definitions,
+    if a formula phi is FO-provable with <unfold_depth> unfoldings of the
+    fixpoint definitions, then the structure should satisfy phi.
+    """
+
+    def __init__(self, theory: Theory, unfold_depth: int):
+        super().__init__(theory.language)
+
+        overrides = {}
+
+        # unfold LFP definitions
+        for sentence in theory.sentences:
+            if isinstance(sentence, FixpointDefinition):
+                unfolded_definition = sentence.unfold_definition(unfold_depth)
+                overrides[sentence.relation_symbol] = \
+                    self.interpret_fixpoint_definition(unfolded_definition)
+
+        self.relation_interpretations.update(overrides)
+
+    def interpret_fixpoint_definition(self, definition: FixpointDefinition) -> smt.SMTFunction:
+        """
+        Interpret the fixpoint definition in the current structure as an SMT function
+        """
+        valuation = { var: smt.FreshSymbol(self.interpret_sort(var.sort).get_smt_sort()) for var in definition.variables }
+        smt_formula = self.interpret_formula(definition.definition, valuation)
+
+        def interp(*args: smt.SMTTerm) -> smt.SMTTerm:
+            assert len(args) == len(definition.variables)
+            substitution = { valuation[k]: v for k, v in zip(definition.variables, args) }
+            return smt_formula.substitute(substitution) # substitution on the SMT formula
+
+        return interp
+
+
+class CEIGSynthesizer:
+    def __init__(
+        self,
+        theory: Theory,
+        formula_var: FormulaVariable,
+        counterexample_var: ModelVariable,
+        fo_provable_depth: int,
+    ):
+        """
+        <theory> is the theory in which the synthesized formulas should hold
+        <formula_var> is the template for the formula to be synthesized
+        <model_var> is the template for a counterexample model
+        <fo_provable_depth> indicates that the synthesized formula should not be FO-provable at that unfolding depth
+        """
+
+        self.theory = theory
+        self.formula_var = formula_var
+        self.counterexample_var = counterexample_var
+        self.fo_provable_structure = FOProvableStructure(theory, fo_provable_depth)
+
+    def synthesize(self, solver_name: str = "z3") -> Generator[Formula, None, None]:
+        with smt.Solver(name=solver_name) as gen_solver, smt.Solver(name=solver_name) as check_solver:
+            # gen_solver is used to generate candidates
+            # check_solver is used to generate counterexamples
+
+            # load templates to solvers
+            self.formula_var.add_to_solver(gen_solver)
+            self.counterexample_var.add_to_solver(check_solver)
+
+            # when negated, the (universally quantified) free variables
+            # become existentially quantified, we do skolemization here
+            gen_skolem_constants = { # for the fo provable structure
+                v: self.fo_provable_structure.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
+                for v in self.formula_var.get_free_variables()
+            }
+            check_skolem_constants = { # for the counterexample
+                v: self.counterexample_var.interpret_sort(v.sort).get_fresh_constant(check_solver, v.sort)
+                for v in self.formula_var.get_free_variables()
+            }
+
+            # the formula should not be FO provable
+            gen_solver.add_assertion(smt.Not(self.formula_var.interpret_in_structure(self.fo_provable_structure, gen_skolem_constants)))
+
+            while gen_solver.solve():
+                # get a candidate from the SMT model
+                candidate = self.formula_var.get_from_model(gen_solver.get_model())
+                print(candidate, "... ", end="", flush=True)
+
+                # try to find a finite counterexample
+                check_solver.add_assertion(smt.Not(self.counterexample_var.interpret_formula(candidate, check_skolem_constants)))
+
+                if check_solver.solve():
+                    # a concrete counterexample
+                    counterexample = self.counterexample_var.get_from_model(check_solver.get_model())
+
+                    # add the new counterexample
+                    print("✘")
+                    gen_solver.add_assertion(
+                        ForAllBlockFormulaVariable(
+                            self.formula_var.get_free_variables(),
+                            self.formula_var,
+                        ).interpret_in_structure(counterexample),
+                    )
+                else:
+                    # no counterexample found, maybe this is true
+                    print("✓")
+
+                    # add duplication-avoidance constraint
+                    for assignment in itertools.permutations(gen_skolem_constants.values()):
+                        permuted_skolem_constants = dict(zip(self.formula_var.get_free_variables(), assignment))
+                        gen_solver.add_assertion(self.fo_provable_structure.interpret_formula(candidate, permuted_skolem_constants))
+
+                    # output the candidate
+                    yield candidate

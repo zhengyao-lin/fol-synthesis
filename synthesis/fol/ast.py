@@ -241,6 +241,21 @@ class FixpointDefinition(Sentence):
 
         return formula
 
+    def unfold_definition(self, n: int) -> FixpointDefinition:
+        """
+        Create a new definition with itself unfolded n times
+        """
+        formula = self.definition
+
+        for _ in range(n):
+            formula = self.unfold_in_formula(formula)
+
+        return FixpointDefinition(
+            self.relation_symbol,
+            self.variables,
+            formula,
+        )
+
     def unfold_in_formula(self, formula: Formula) -> Formula:
         """
         Replace application of self.relation_symbol in a given formula with the definition

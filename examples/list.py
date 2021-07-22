@@ -74,6 +74,27 @@ synt_var = ImplicationFormulaVariable(
     )),
     AtomicFormulaVariable(language, (x, y, z), 0),
 )
+
+# lseg = lambda x, y: RelationApplication(lseg_symbol, (x, y))
+
+# synt_var = ExistsBlockFormulaVariable(
+#     (),
+#     ImplicationFormulaVariable(
+#         ConjunctionFormulaVariable((
+#             # AtomicFormulaVariable(language, (x, y, z), 0),
+#             # AtomicFormulaVariable(language, (x, y, z), 0),
+#             ConstantFormula(lseg(x, y)),
+#             ConstantFormula(lseg(x, z)),
+#         )),
+#         DisjunctionFormulaVariable((
+#             ConstantFormula(lseg(y, z)),
+#             ConstantFormula(lseg(z, y)),
+#             # AtomicFormulaVariable(language, (x, y, z), 0),
+#             # AtomicFormulaVariable(language, (x, y, z), 0),
+#         ))
+#     )
+# )
+
 model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 
 for formula in CEIGSynthesizer(theory, synt_var, model_var, 2).synthesize(): ...

@@ -148,13 +148,10 @@ synt_var = ImplicationFormulaVariable(
         AtomicFormulaVariable(synth_language, (x,), 0),
         AtomicFormulaVariable(synth_language, (x,), 0),
         AtomicFormulaVariable(synth_language, (x,), 0),
-        # ConstantFormula(leftmost(x, c)),
-        # ConstantFormula(bst(x)),
-        # ConstantFormula(ne_pointer(x, nil)),
     )),
-    # ConstantFormula(le_int(c, key(x))),
     AtomicFormulaVariable(synth_language, (x,), 1),
 )
+
 model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 5 })
 
 for formula in CEIGSynthesizer(theory, synt_var, model_var, 2).synthesize(): ...

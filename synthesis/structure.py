@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Mapping
+from typing import Tuple, Dict, Mapping, Iterable
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -36,6 +36,18 @@ class Structure(ABC):
 
     @abstractmethod
     def interpret_relation(self, symbol: RelationSymbol, *arguments: smt.SMTTerm) -> smt.SMTTerm: ...
+
+    def get_smt_sort(self, sort: Sort) -> smt.SMTSort:
+        return self.interpret_sort(sort).get_smt_sort()
+
+    def get_fresh_valuation(self, variables: Iterable[Variable]) -> Dict[Variable, smt.SMTTerm]:
+        """
+        Create a valuation with each variable in the list mapped to a fresh variable of suitable SMT sort
+        """
+        return {
+            var: smt.FreshSymbol(self.get_smt_sort(var.sort))
+            for var in variables
+        }
 
     def interpret_term(self, term: Term, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
         if isinstance(term, Variable):

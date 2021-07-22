@@ -354,6 +354,48 @@ class ConjunctionFormulaVariable(FormulaVariable):
 
 
 @dataclass
+class DisjunctionFormulaVariable(FormulaVariable):
+    disjuncts: Tuple[FormulaVariable, ...]
+
+    def __post_init__(self) -> None:
+        assert len(self.disjuncts) != 0
+
+    def get_free_variables(self) -> Tuple[Variable, ...]:
+        return tuple(set(sum(map(lambda c: c.get_free_variables(), self.disjuncts), ())))
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.And(*(disjunct.get_constraint() for disjunct in self.disjuncts))
+
+    def get_from_model(self, model: smt.SMTModel) -> Formula:
+        disjuncts = tuple(disjunct.get_from_model(model) for disjunct in self.disjuncts)
+        formula = disjuncts[-1]
+
+        for disjunct in disjuncts[:-1][::-1]:
+            formula = Disjunction(disjunct, formula)
+
+        return formula
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        constraint = smt.TRUE()
+
+        for i, disjunct in enumerate(self.disjuncts):
+            if i + 1 != len(self.disjuncts):
+                assert isinstance(value, Disjunction)
+                constraint = smt.And(disjunct.equals(value.left), constraint)
+                value = value.right
+            else:
+                constraint = smt.And(disjunct.equals(value), constraint)
+
+        return constraint
+
+    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+        return smt.Or(*(
+            disjunct.interpret_in_structure(structure, valuation)
+            for disjunct in self.disjuncts
+        ))
+
+
+@dataclass
 class ImplicationFormulaVariable(FormulaVariable):
     left: FormulaVariable
     right: FormulaVariable
@@ -379,10 +421,11 @@ class ImplicationFormulaVariable(FormulaVariable):
         )
 
 
-@dataclass
-class ForAllBlockFormulaVariable(FormulaVariable):
-    variables: Tuple[Variable, ...]
-    body: FormulaVariable
+class QuantifierBlockFormulaVariable(FormulaVariable):
+    def __init__(self, is_forall: bool, variables: Tuple[Variable, ...], body: FormulaVariable):
+        self.is_forall = is_forall # True for forall, False for exists
+        self.variables = variables
+        self.body = body
 
     def get_free_variables(self) -> Tuple[Variable, ...]:
         return tuple(var for var in self.body.get_free_variables() if var not in self.variables)
@@ -397,27 +440,44 @@ class ForAllBlockFormulaVariable(FormulaVariable):
         formula = self.body.get_from_model(model)
 
         for var in self.variables[::-1]:
-            formula = UniversalQuantification(var, formula)
+            formula = UniversalQuantification(var, formula) if self.is_forall else ExistentialQuantification(var, formula)
 
         return formula
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         for var in self.variables:
-            assert isinstance(value, UniversalQuantification) and value.variable == var, \
-                   f"cannot match the first quantifiers with variables {self.variables}"
+            if self.is_forall:
+                assert isinstance(value, UniversalQuantification) and value.variable == var, \
+                       f"cannot match the first quantifiers with variables {self.variables}"
+            else:
+                assert isinstance(value, ExistentialQuantification) and value.variable == var, \
+                       f"cannot match the first quantifiers with variables {self.variables}"
             value = value.body
 
         return self.body.equals(value)
 
     def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        fresh_vars = { var: smt.FreshSymbol(structure.interpret_sort(var.sort).get_smt_sort()) for var in self.variables }
+        fresh_vars = structure.get_fresh_valuation(self.variables)
         interp = self.body.interpret_in_structure(structure, { **valuation, **fresh_vars })
 
         for var in self.variables[::-1]:
             carrier = structure.interpret_sort(var.sort)
-            interp = carrier.universally_quantify(fresh_vars[var], interp)
+            if self.is_forall:
+                interp = carrier.universally_quantify(fresh_vars[var], interp)
+            else:
+                interp = carrier.existentially_quantify(fresh_vars[var], interp)
 
         return interp
+
+
+class ForAllBlockFormulaVariable(QuantifierBlockFormulaVariable):
+    def __init__(self, variables: Tuple[Variable, ...], body: FormulaVariable):
+        super().__init__(True, variables, body)
+
+
+class ExistsBlockFormulaVariable(QuantifierBlockFormulaVariable):
+    def __init__(self, variables: Tuple[Variable, ...], body: FormulaVariable):
+        super().__init__(False, variables, body)
 
 
 class ModelVariable(VariableWithConstraint[Structure], Structure): ...
@@ -520,7 +580,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
         rank_function = self.rank_functions[relation_symbol]
 
         # state that the rank is non-negative
-        smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
+        smt_input_sorts = tuple(self.get_smt_sort(sort) for sort in relation_symbol.input_sorts)
         smt_input_vars = tuple(smt.FreshSymbol(smt_sort) for smt_sort in smt_input_sorts)
         non_negative_constraint = smt.GE(rank_function(*smt_input_vars), smt.Int(0))
 
@@ -582,13 +642,15 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
         for function_symbol in self.theory.language.function_symbols:
             if function_symbol.smt_hook is None:
                 concrete_functions[function_symbol] = \
-                    (lambda symbol: lambda *args: model.get_value(self.interpret_function(symbol, *args), model_completion=False))(function_symbol)
+                    (lambda symbol: lambda *args: \
+                        model.get_value(self.interpret_function(symbol, *args), model_completion=False))(function_symbol)
 
         # construct new relation interpretations
         for relation_symbol in self.theory.language.relation_symbols:
             if relation_symbol.smt_hook is None:
                 concrete_relations[relation_symbol] = \
-                    (lambda symbol: lambda *args: model.get_value(self.interpret_relation(symbol, *args), model_completion=False))(relation_symbol)
+                    (lambda symbol: lambda *args: \
+                        model.get_value(self.interpret_relation(symbol, *args), model_completion=False))(relation_symbol)
 
         return SymbolicStructure(self.theory.language, concrete_carriers, concrete_functions, concrete_relations)
 
@@ -651,7 +713,7 @@ class FOProvableStructure(UninterpretedStructure):
         """
         Interpret the fixpoint definition in the current structure as an SMT function
         """
-        valuation = { var: smt.FreshSymbol(self.interpret_sort(var.sort).get_smt_sort()) for var in definition.variables }
+        valuation = self.get_fresh_valuation(definition.variables)
         smt_formula = self.interpret_formula(definition.definition, valuation)
 
         def interp(*args: smt.SMTTerm) -> smt.SMTTerm:
@@ -725,15 +787,6 @@ class CEIGSynthesizer:
                     # a concrete counterexample
                     counterexample = self.counterexample_var.get_from_model(check_solver.get_model())
                     check_solver.pop()
-
-                    # carrier = counterexample.interpret_sort(Sort("Pointer"))
-                    # print(carrier.domain)
-                    # print("nil", counterexample.interpret_function(self.theory.language.function_symbols[0]))
-                    # print("left", tuple(counterexample.interpret_function(self.theory.language.function_symbols[1], element) for element in carrier.domain))
-                    # print("right", tuple(counterexample.interpret_function(self.theory.language.function_symbols[2], element) for element in carrier.domain))
-                    # print("key", tuple(counterexample.interpret_function(self.theory.language.function_symbols[3], element) for element in carrier.domain))
-                    # print("btree", tuple(counterexample.interpret_relation(self.theory.language.relation_symbols[0], element) for element in carrier.domain))
-                    # print("bst", tuple(counterexample.interpret_relation(self.theory.language.relation_symbols[1], element) for element in carrier.domain))
 
                     # add the new counterexample
                     print("✘")

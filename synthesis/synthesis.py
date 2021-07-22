@@ -1,10 +1,10 @@
-from typing import Any, Generic, TypeVar, Tuple, Mapping
+from typing import Any, Generic, TypeVar, Tuple, Mapping, Dict
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
 from .fol.ast import *
-from .structure import CarrierSet, Structure
+from .structure import CarrierSet, Structure, FiniteCarrierSet, SymbolicStructure
 from . import smt
 
 T = TypeVar("T")
@@ -396,3 +396,176 @@ class ForAllBlockFormulaVariable(FormulaVariable):
             interp = carrier.universally_quantify(fresh_vars[var], interp)
 
         return interp
+
+
+class FiniteLFPModelVariable(SymbolicStructure, VariableWithConstraint[Structure]):
+    """
+    A variable/template for a finite LFP model of a given theory
+    """
+
+    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
+        self.theory = theory
+
+        carriers: Dict[Sort, FiniteCarrierSet] = {}
+        function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = {}
+        relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = {}
+
+        self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = {}
+
+        # initialize all carrier sets
+        for sort in theory.language.sorts:
+            if sort.smt_hook is None:
+                assert sort in size_bounds, \
+                       f"no bound on the size of the carrier set of {sort}"
+                carrier = FiniteCarrierSet(
+                    smt.INT,
+                    tuple(smt.FreshSymbol(smt.INT) for _ in range(size_bounds[sort]))
+                )
+                carriers[sort] = carrier
+
+        # initialize uninterpreted functions for function symbols
+        for function_symbol in theory.language.function_symbols:
+            if function_symbol.smt_hook is None:
+                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in function_symbol.input_sorts)
+                smt_output_sort = function_symbol.output_sort.smt_hook or smt.INT
+                function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
+
+        # initialize uninterpreted functions for relation symbols
+        for relation_symbol in theory.language.relation_symbols:
+            if relation_symbol.smt_hook is None:
+                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
+                relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
+
+        # for any fixpoint definition, add a rank function
+        for sentence in theory.sentences:
+            if isinstance(sentence, FixpointDefinition):
+                relation_symbol = sentence.relation_symbol
+                assert relation_symbol not in self.rank_functions, \
+                       f"duplicate fixpoint definition for {relation_symbol}"
+                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
+                self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
+
+        super().__init__(theory.language, carriers, function_interpretations, relation_interpretations)
+
+    def get_constraint(self) -> smt.SMTTerm:
+        """
+        The model should satify all sentences in the theory
+        """
+        constraint = smt.TRUE()
+
+        # all functions are closed
+        for function_symbol in self.theory.language.function_symbols:
+            if function_symbol.smt_hook is None and function_symbol.output_sort.smt_hook is None:
+                output_carrier = self.interpret_sort(function_symbol.output_sort)
+                assert isinstance(output_carrier, FiniteCarrierSet)
+
+                smt_input_vars = tuple(smt.FreshSymbol(sort.smt_hook or smt.INT) for sort in function_symbol.input_sorts)
+
+                closed_constraint = smt.Or(*(
+                    smt.Equals(self.interpret_function(function_symbol, *smt_input_vars), element)
+                    for element in output_carrier.domain
+                ))
+
+                for var, sort in zip(smt_input_vars, function_symbol.input_sorts):
+                    carrier = self.interpret_sort(sort)
+                    closed_constraint = carrier.universally_quantify(var, closed_constraint)
+
+                constraint = smt.And(closed_constraint, constraint)
+        
+        for sentence in self.theory.sentences:
+            if isinstance(sentence, Axiom):
+                constraint = smt.And(self.interpret_formula(sentence.formula), constraint)
+            elif isinstance(sentence, FixpointDefinition):
+                constraint = smt.And(self.get_constraints_for_least_fixpoint(sentence), constraint)
+            else:
+                assert False, f"unsupported sentence {sentence}"
+
+        return constraint
+
+    def get_constraints_for_least_fixpoint(self, definition: FixpointDefinition) -> smt.SMTTerm:
+        """
+        Return a constraint saying that the structure satisfies the given fixpoint definition (as least fixpoint)
+        """
+        
+        # enforcing fixpoint
+        constraint = self.interpret_formula(definition.as_formula())
+
+        # use a rank function to enforce the least fixpoint
+        relation_symbol = definition.relation_symbol
+        rank_function = self.rank_functions[relation_symbol]
+
+        # state that the rank is non-negative
+        smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
+        smt_input_vars = tuple(smt.FreshSymbol(smt_sort) for smt_sort in smt_input_sorts)
+        non_negative_constraint = smt.GE(rank_function(*smt_input_vars), smt.Int(0))
+
+        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
+            carrier = self.interpret_sort(sort)
+            non_negative_constraint = carrier.universally_quantify(var, non_negative_constraint)
+
+        constraint = smt.And(non_negative_constraint, constraint)
+
+        # state the rank invariant
+        # TODO: slightly hacky
+        valuation = { k: v for k, v in zip(definition.variables, smt_input_vars) }
+
+        # interpret the definition but with the relation R(...) replaced by
+        # f(...) < f(x)  /\ R(...)
+        old_interpretation = self.relation_interpretations[relation_symbol]
+        self.relation_interpretations[relation_symbol] = lambda *args: \
+            smt.And(
+                smt.LT(rank_function(*args), rank_function(*smt_input_vars)),
+                old_interpretation(*args),
+            )
+        interp = self.interpret_formula(definition.definition, valuation)
+        self.relation_interpretations[relation_symbol] = old_interpretation
+
+        rank_invariant = smt.Implies(
+            old_interpretation(*smt_input_vars),
+            interp
+        )
+
+        # forall. R(...) -> phi((f(...) < f(x)  /\ R(...)) / R(...))
+        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
+            carrier = self.interpret_sort(sort)
+            rank_invariant = carrier.universally_quantify(var, rank_invariant)
+
+        constraint = smt.And(rank_invariant, constraint)
+
+        return constraint
+
+    def get_from_model(self, model: smt.SMTModel) -> Structure:
+        """
+        Concretize a structure
+        """
+        concrete_carriers = {}
+        concrete_functions = {}
+        concrete_relations = {}
+
+        for sort in self.theory.language.sorts:
+            if sort.smt_hook is None:
+                carrier = self.interpret_sort(sort)
+                assert isinstance(carrier, FiniteCarrierSet)
+
+                # read the concrete domain
+                concrete_carriers[sort] = FiniteCarrierSet(
+                    carrier.get_smt_sort(),
+                    tuple(model[element] for element in carrier.domain),
+                )
+
+        # construct new function interpretations
+        for function_symbol in self.theory.language.function_symbols:
+            if function_symbol.smt_hook is None:
+                concrete_functions[function_symbol] = \
+                    (lambda symbol: lambda *args: model.get_value(self.interpret_function(symbol, *args), model_completion=False))(function_symbol)
+
+        # construct new relation interpretations
+        for relation_symbol in self.theory.language.relation_symbols:
+            if relation_symbol.smt_hook is None:
+                concrete_relations[relation_symbol] = \
+                    (lambda symbol: lambda *args: model.get_value(self.interpret_relation(symbol, *args), model_completion=False))(relation_symbol)
+
+        return SymbolicStructure(self.theory.language, concrete_carriers, concrete_functions, concrete_relations)
+
+    def equals(self, value: Structure) -> smt.SMTTerm:
+        raise NotImplementedError()

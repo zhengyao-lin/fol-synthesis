@@ -5,8 +5,8 @@ from synthesis.fol.ast import *
 from synthesis.synthesis import *
 
 
-sort_a = UninterpretedSort("A")
-sort_b = UninterpretedSort("B")
+sort_a = Sort("A")
+sort_b = Sort("B")
 
 language = Language(
     (sort_a, sort_b),

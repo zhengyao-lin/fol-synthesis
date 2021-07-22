@@ -18,17 +18,10 @@ class BaseAST:
 @dataclass(frozen=True)
 class Sort(BaseAST):
     name: str
+    smt_hook: Optional[smt.SMTSort] = None
 
     def __str__(self) -> str:
         return self.name
-
-
-class UninterpretedSort(Sort): ...
-
-
-@dataclass(frozen=True)
-class InterpretedSort(Sort):
-    smt_hook: smt.SMTSort
 
 
 @dataclass(frozen=True)
@@ -65,12 +58,12 @@ class Variable(Term):
         return self
 
 
-@dataclass
-class UnsortedVariable(Term):
-    """
-    A temporary construct for parsing
-    """
-    name: str
+# @dataclass
+# class UnsortedVariable(Term):
+#     """
+#     A temporary construct for parsing
+#     """
+#     name: str
 
 
 @dataclass(frozen=True)
@@ -228,8 +221,7 @@ class ExistentialQuantification(Formula):
         return ExistentialQuantification(self.variable, self.body.substitute(substitution))
 
 
-class Sentence(BaseAST):
-    ...
+class Sentence(BaseAST): ...
 
 
 @dataclass(frozen=True)
@@ -237,6 +229,17 @@ class FixpointDefinition(Sentence):
     relation_symbol: RelationSymbol
     variables: Tuple[Variable, ...]
     definition: Formula
+
+    def as_formula(self) -> Formula:
+        """
+        Return a formula describing the fixpoint (not necessarily an LFP)
+        """
+        formula = Equivalence(RelationApplication(self.relation_symbol, self.variables), self.definition)
+
+        for var in self.variables[::-1]:
+            formula = UniversalQuantification(var, formula)
+
+        return formula
 
     def unfold_in_formula(self, formula: Formula) -> Formula:
         """
@@ -296,7 +299,7 @@ class FixpointDefinition(Sentence):
 
 
 @dataclass(frozen=True)
-class AxiomSentence(Sentence):
+class Axiom(Sentence):
     formula: Formula
 
 
@@ -330,3 +333,9 @@ class Language:
             self.function_symbols + other.function_symbols,
             self.relation_symbols + other.relation_symbols,
         )
+
+
+@dataclass
+class Theory:
+    language: Language
+    sentences: Tuple[Sentence, ...]

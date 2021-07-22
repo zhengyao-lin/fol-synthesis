@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Callable, Mapping
+from typing import Tuple, Dict, Mapping
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
@@ -96,7 +96,7 @@ class RefinementCarrierSet(CarrierSet):
     """
 
     sort: smt.SMTSort
-    predicate: Callable[[smt.SMTTerm], smt.SMTTerm] = lambda _: smt.TRUE()
+    predicate: smt.SMTFunction = lambda _: smt.TRUE()
 
     def get_smt_sort(self) -> smt.SMTSort:
         return self.sort
@@ -116,33 +116,39 @@ class RefinementCarrierSet(CarrierSet):
 @dataclass
 class FiniteCarrierSet(CarrierSet):
     sort: smt.SMTSort
-    collection: Tuple[smt.SMTTerm, ...]
+    domain: Tuple[smt.SMTTerm, ...]
 
     def get_smt_sort(self) -> smt.SMTSort:
         return self.sort
 
     def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
-        return smt.And(*(formula.substitute({ variable: element }) for element in self.collection))
+        return smt.And(*(formula.substitute({ variable: element }) for element in self.domain))
 
     def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
-        return smt.Or(*(formula.substitute({ variable: element }) for element in self.collection))
+        return smt.Or(*(formula.substitute({ variable: element }) for element in self.domain))
     
     def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable:
         var = smt.FreshSymbol(self.sort)
-        solver.add_assertion(smt.Or(*(smt.Equals(var, element) for element in self.collection)))
+        solver.add_assertion(smt.Or(*(smt.Equals(var, element) for element in self.domain)))
         return var
 
 
-@dataclass
 class SymbolicStructure(Structure):
-    language: Language
-    carriers: Dict[Sort, CarrierSet]
-    function_interpretations: Dict[FunctionSymbol, Callable[..., smt.SMTTerm]]
-    relation_interpretations: Dict[RelationSymbol, Callable[..., smt.SMTTerm]]
+    def __init__(
+        self,
+        language: Language,
+        carriers: Mapping[Sort, CarrierSet],
+        function_interpretations: Mapping[FunctionSymbol, smt.SMTFunction],
+        relation_interpretations: Mapping[RelationSymbol, smt.SMTFunction],
+    ):
+        self.language = language
+        self.carriers = dict(carriers)
+        self.function_interpretations = dict(function_interpretations)
+        self.relation_interpretations = dict(relation_interpretations)
 
     def interpret_sort(self, sort: Sort) -> CarrierSet:
         if sort not in self.carriers:
-            assert isinstance(sort, InterpretedSort), f"unable to interpret sort {sort}"
+            assert sort.smt_hook is not None, f"unable to interpret sort {sort}"
             return RefinementCarrierSet(sort.smt_hook)
 
         return self.carriers[sort]

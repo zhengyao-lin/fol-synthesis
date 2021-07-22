@@ -1,5 +1,7 @@
 from typing import Any
 
+import itertools
+
 from synthesis.smt import get_model, Solver, Not, Equals, BOOL, INT, FunctionType, FreshSymbol, Apply
 from synthesis import smt
 from synthesis.fol.ast import *
@@ -7,8 +9,8 @@ from synthesis.synthesis import *
 from synthesis.structure import *
 
 
-sort_pointer = UninterpretedSort("Pointer")
-sort_int = InterpretedSort("Int", INT)
+sort_pointer = Sort("Pointer")
+sort_int = Sort("Int", INT)
 
 nil_symbol = FunctionSymbol((), sort_pointer, "nil")
 next_symbol = FunctionSymbol((sort_pointer,), sort_pointer, "next")
@@ -24,52 +26,6 @@ language = Language(
 )
 
 expanded_language = language.expand(Language((), (), (in_lseg_symbol, pointer_eq_symbol)))
-
-finite_structure = SymbolicStructure(
-    language,
-    {
-        sort_pointer: FiniteCarrierSet(smt.INT, (smt.Int(0), smt.Int(1), smt.Int(2), smt.Int(3), smt.Int(4))),
-    },
-    {
-        nil_symbol: lambda: smt.Int(0),
-        next_symbol: lambda p:
-            smt.Ite(
-                smt.Equals(p, smt.Int(0)),
-                smt.Int(0),
-            smt.Ite(
-                smt.Equals(p, smt.Int(1)),
-                smt.Int(0),
-            smt.Ite(
-                smt.Equals(p, smt.Int(2)),
-                smt.Int(1),
-            smt.Ite(
-                smt.Equals(p, smt.Int(3)),
-                smt.Int(3),
-            smt.Ite(
-                smt.Equals(p, smt.Int(4)),
-                smt.Int(3),
-                smt.Int(0),
-            ))))),
-    },
-    {
-        list_symbol: lambda p: smt.Or(
-            smt.Equals(p, smt.Int(0)),
-            smt.Equals(p, smt.Int(1)),
-            smt.Equals(p, smt.Int(2)),
-        ),
-        lseg_symbol: lambda p1, p2: smt.Or(
-            smt.And(smt.Equals(p1, smt.Int(0)), smt.Equals(p2, smt.Int(0))),
-            smt.And(smt.Equals(p1, smt.Int(1)), smt.Equals(p2, smt.Int(0))),
-            smt.And(smt.Equals(p1, smt.Int(2)), smt.Equals(p2, smt.Int(0))),
-            smt.And(smt.Equals(p1, smt.Int(1)), smt.Equals(p2, smt.Int(1))),
-            smt.And(smt.Equals(p1, smt.Int(2)), smt.Equals(p2, smt.Int(1))),
-            smt.And(smt.Equals(p1, smt.Int(2)), smt.Equals(p2, smt.Int(2))),
-            smt.And(smt.Equals(p1, smt.Int(3)), smt.Equals(p2, smt.Int(3))),
-            smt.And(smt.Equals(p1, smt.Int(4)), smt.Equals(p2, smt.Int(3))),
-            smt.And(smt.Equals(p1, smt.Int(4)), smt.Equals(p2, smt.Int(4))),
-        ),
-    },
-)
 
 x = Variable("x", sort_pointer)
 y = Variable("y", sort_pointer)
@@ -137,7 +93,7 @@ def unfold_definition(definition: FixpointDefinition, n: int) -> FixpointDefinit
         formula,
     )
 
-def interpret_fixpoint_definition(definition: FixpointDefinition, structure: Structure) -> Callable[..., smt.SMTTerm]:
+def interpret_fixpoint_definition(definition: FixpointDefinition, structure: Structure) -> smt.SMTFunction:
     valuation = { var: smt.FreshSymbol(structure.interpret_sort(var.sort).get_smt_sort()) for var in definition.variables }
     smt_formula = structure.interpret_formula(definition.definition, valuation)
 
@@ -149,53 +105,80 @@ def interpret_fixpoint_definition(definition: FixpointDefinition, structure: Str
     return interp
 
 
-nil_uninterp = FreshSymbol(FunctionType(INT, ()))
-next_uninterp = FreshSymbol(FunctionType(INT, (INT,)))
-list_uninterp = FreshSymbol(FunctionType(BOOL, (INT,)))
-lseg_uninterp = FreshSymbol(FunctionType(BOOL, (INT, INT)))
-in_lseg_uninterp = FreshSymbol(FunctionType(BOOL, (INT, INT, INT)))
+nil_uninterp = smt.FreshFunction((), INT)
+next_uninterp = smt.FreshFunction((INT,), INT)
+list_uninterp = smt.FreshFunction((INT,), BOOL)
+lseg_uninterp = smt.FreshFunction((INT, INT), BOOL)
+in_lseg_uninterp = smt.FreshFunction((INT, INT, INT), BOOL)
 
 
-counterexample_uninterp = SymbolicStructure(
+fo_provable_counterexample_uninterp = SymbolicStructure(
     language,
     {
         sort_pointer: RefinementCarrierSet(INT),
     },
     {
-        nil_symbol: lambda: nil_uninterp,
-        next_symbol: lambda p: Apply(next_uninterp, (p,)),
+        nil_symbol: nil_uninterp,
+        next_symbol: next_uninterp,
     },
     {
-        list_symbol: lambda p: Apply(list_uninterp, (p,)),
-        lseg_symbol: lambda p1, p2: Apply(lseg_uninterp, (p1, p2)),
-        in_lseg_symbol: lambda p1, p2, p3: Apply(in_lseg_uninterp, (p1, p2, p3)),
+        list_symbol: list_uninterp,
+        lseg_symbol: lseg_uninterp,
+        in_lseg_symbol: in_lseg_uninterp,
     },
 )
 
-counterexample = SymbolicStructure(
+fo_provable_counterexample = SymbolicStructure(
     language,
     {
         sort_pointer: RefinementCarrierSet(INT),
     },
     {
-        nil_symbol: lambda: nil_uninterp,
-        next_symbol: lambda p: Apply(next_uninterp, p),
+        nil_symbol: nil_uninterp,
+        next_symbol: next_uninterp,
     },
     {
-        list_symbol: interpret_fixpoint_definition(unfold_definition(list_defn, 2), counterexample_uninterp),
-        lseg_symbol: interpret_fixpoint_definition(unfold_definition(lseg_defn, 2), counterexample_uninterp),
-        in_lseg_symbol: interpret_fixpoint_definition(unfold_definition(in_lseg_defn, 2), counterexample_uninterp),
+        list_symbol: interpret_fixpoint_definition(unfold_definition(list_defn, 2), fo_provable_counterexample_uninterp),
+        lseg_symbol: interpret_fixpoint_definition(unfold_definition(lseg_defn, 2), fo_provable_counterexample_uninterp),
+        in_lseg_symbol: interpret_fixpoint_definition(unfold_definition(in_lseg_defn, 2), fo_provable_counterexample_uninterp),
     },
 )
 
-with Solver(name="z3") as solver:
-    synt_var.add_to_solver(solver)
-    solver.add_assertion(synt_var.interpret_in_structure(finite_structure, {}))
-    solver.add_assertion(Not(synt_var.interpret_in_structure(counterexample, {})))
+theory = Theory(expanded_language, (in_lseg_defn, list_defn, lseg_defn))
 
-    while solver.solve():
-        model = solver.get_model()
-        val = synt_var.get_from_model(model)
-        print(val)
-        solver.add_assertion(smt.Not(synt_var.equals(val)))
-        solver.add_assertion(counterexample.interpret_formula(val))
+model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
+
+synthesized_formulas = []
+
+with Solver(name="z3") as solver1, Solver(name="z3") as solver2, Solver(name="z3") as solver3:
+    synt_var.add_to_solver(solver1)
+    synt_var.add_to_solver(solver3)
+    model_var.add_to_solver(solver2)
+
+    solver1.add_assertion(Not(synt_var.interpret_in_structure(fo_provable_counterexample, {})))
+
+    while solver1.solve():
+        model1 = solver1.get_model()
+        val = synt_var.get_from_model(model1)
+        print(val, "... ", end="", flush=True)
+
+        # try to find a finite counterexample
+        solver2.add_assertion(smt.Not(model_var.interpret_formula(val)))
+        if solver2.solve():
+            model2 = solver2.get_model()
+            counterexample = model_var.get_from_model(model2)
+            
+            # carrier = counterexample.carriers[sort_pointer]
+            # print(carrier.domain)
+            # print("nil", counterexample.interpret_function(nil_symbol))
+            # print("next", tuple(counterexample.interpret_function(next_symbol, element) for element in carrier.domain))
+            # print("list", tuple(element for element in carrier.domain if counterexample.interpret_relation(list_symbol, element).is_true()))
+            # print("lseg", tuple((e1, e2) for e1 in carrier.domain for e2 in carrier.domain if counterexample.interpret_relation(lseg_symbol, e1, e2).is_true()))
+
+            # add the new counterexample
+            print("✘")
+            solver1.add_assertion(synt_var.interpret_in_structure(counterexample, {}))
+        else:
+            # no counterexample found, maybe this is true
+            print("✓")
+            solver1.add_assertion(fo_provable_counterexample.interpret_formula(val))

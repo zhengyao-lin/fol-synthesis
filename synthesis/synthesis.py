@@ -5,31 +5,13 @@ from abc import ABC, abstractmethod
 
 import itertools
 
-from .fol.ast import *
-from .structure import CarrierSet, Structure, FiniteCarrierSet, SymbolicStructure, RefinementCarrierSet
-from . import smt
+from synthesis import smt
 
-T = TypeVar("T")
-
-
-class VariableWithConstraint(Generic[T], ABC):
-    def add_to_solver(self, solver: smt.SMTSolver) -> None:
-        solver.add_assertion(self.get_constraint())
-
-    @abstractmethod
-    def get_constraint(self) -> smt.SMTTerm:
-        ...
-
-    @abstractmethod
-    def get_from_model(self, model: smt.SMTModel) -> T:
-        ...
-
-    @abstractmethod
-    def equals(self, value: T) -> smt.SMTTerm:
-        ...
+from .fol import *
+from .template import Template
 
 
-class BoundedIntegerVariable(VariableWithConstraint[int]):
+class BoundedIntegerVariable(Template[int]):
     """
     An integer variable with range lower upper
     """
@@ -38,29 +20,29 @@ class BoundedIntegerVariable(VariableWithConstraint[int]):
         assert upper >= lower
         self.lower = lower
         self.upper = upper
-        self.num_bits = (upper - lower + 1).bit_length()
-        self.variable = smt.FreshSymbol(typename=smt.BVType(self.num_bits))
+        self.variable = smt.FreshSymbol(smt.INT)
 
     def get_constraint(self) -> smt.SMTTerm:
-        # TODO
-        return smt.TRUE()
+        return smt.And(smt.LE(smt.Int(self.lower), self.variable), smt.LE(self.variable, smt.Int(self.upper)))
 
-    def get_from_model(self, model: smt.SMTModel) -> int:
-        return model[self.variable].bv2nat() + self.lower # type: ignore
+    def get_from_smt_model(self, model: smt.SMTModel) -> int:
+        return model[self.variable].constant_value() # type: ignore
 
     def equals(self, value: int) -> smt.SMTTerm:
-        return smt.Equals(self.variable, smt.BV(value - self.lower, self.num_bits))
+        return smt.Equals(self.variable, smt.Int(value))
 
 
-class TermVariable(VariableWithConstraint[Term]):
+class TermVariable(Term):
     """
     Template for a term
     """
 
-    def __init__(self, language: Language, free_vars: Tuple[Variable, ...], depth: int):
+    def __init__(self, language: Language, free_vars: Tuple[Variable, ...], depth: int, sort: Optional[Sort] = None):
         self.language = language
         self.free_vars = free_vars
         self.depth = depth
+        self.sort = sort
+
         self.node = BoundedIntegerVariable(0, len(self.free_vars) + len(self.language.function_symbols))
 
         if depth != 0:
@@ -68,8 +50,11 @@ class TermVariable(VariableWithConstraint[Term]):
         else:
             self.subterms = ()
 
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        return self.free_vars
+    def get_free_variables(self) -> Set[Variable]:
+        return set(self.free_vars)
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> Term:
+        raise NotImplementedError()
 
     def get_constraint(self) -> smt.SMTTerm:
         """
@@ -77,11 +62,11 @@ class TermVariable(VariableWithConstraint[Term]):
         """
         return smt.Or(*(self.get_well_formedness_constraint(sort) for sort in self.language.sorts))
 
-    def get_from_model(self, model: smt.SMTModel) -> Term:
+    def get_from_smt_model(self, model: smt.SMTModel) -> Term:
         """
         Get a concrete term from the given model
         """
-        node_value = self.node.get_from_model(model)
+        node_value = self.node.get_from_smt_model(model)
         assert node_value != 0, f"unexpected node value {node_value}"
 
         if node_value <= len(self.free_vars):
@@ -89,7 +74,7 @@ class TermVariable(VariableWithConstraint[Term]):
         else:
             symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
             arity = len(symbol.input_sorts)
-            return Application(symbol, tuple(subterm.get_from_model(model) for subterm in self.subterms[:arity]))
+            return Application(symbol, tuple(subterm.get_from_smt_model(model) for subterm in self.subterms[:arity]))
 
     def equals(self, value: Term) -> smt.SMTTerm:
         if isinstance(value, Variable):
@@ -146,9 +131,14 @@ class TermVariable(VariableWithConstraint[Term]):
                         constraint,
                     )
 
-        return constraint
+        return smt.And(constraint, self.node.get_constraint())
 
-    def interpret_in_structure(self, sort: Sort, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        assert self.sort is not None, \
+               f"term variable does not have a specific sort"
+        return self.interpret_as_sort(self.sort, structure, valuation)
+
+    def interpret_as_sort(self, sort: Sort, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         """
         Interpret the undetermined term in the given structure and valuation
         """
@@ -169,7 +159,7 @@ class TermVariable(VariableWithConstraint[Term]):
 
                 if symbol.output_sort == sort and (self.depth != 0 or arity == 0):
                     arguments = tuple(
-                        subterm.interpret_in_structure(subterm_sort, structure, valuation)
+                        subterm.interpret_as_sort(subterm_sort, structure, valuation)
                         for subterm_sort, subterm in zip(symbol.input_sorts, self.subterms[:arity])
                     )
                     interp = smt.Ite(self.node.equals(node_value), structure.interpret_function(symbol, *arguments), interp)
@@ -177,35 +167,7 @@ class TermVariable(VariableWithConstraint[Term]):
         return interp
 
 
-class FormulaVariable(VariableWithConstraint[Formula]):
-    @abstractmethod
-    def get_free_variables(self) -> Tuple[Variable, ...]: ...
-
-    @abstractmethod
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm: ...
-
-
-class ConstantFormula(FormulaVariable):
-    def __init__(self, formula: Formula):
-        self.formula = formula
-
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        return tuple(self.formula.get_free_variables())
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return smt.TRUE()
-
-    def get_from_model(self, model: smt.SMTModel) -> Formula:
-        return self.formula
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        return smt.TRUE() if value == self.formula else smt.FALSE()
-
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        return structure.interpret_formula(self.formula, valuation)
-
-
-class AtomicFormulaVariable(FormulaVariable):
+class AtomicFormulaVariable(Formula):
     """
     Template for an atomic formula (i.e. false, true, or other relations)
     """
@@ -218,17 +180,20 @@ class AtomicFormulaVariable(FormulaVariable):
 
         self.subterms = tuple(TermVariable(language, free_vars, term_depth) for _ in range(language.get_max_relation_arity()))
 
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        return self.free_vars
+    def get_free_variables(self) -> Set[Variable]:
+        return set(self.free_vars)
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
+        raise NotImplementedError()
 
     def get_constraint(self) -> smt.SMTTerm:
         return self.get_well_formedness_constraint()
 
-    def get_from_model(self, model: smt.SMTModel) -> AtomicFormula:
+    def get_from_smt_model(self, model: smt.SMTModel) -> AtomicFormula:
         """
         Get a concrete atomic formula from the model
         """
-        node_value = self.node.get_from_model(model)
+        node_value = self.node.get_from_smt_model(model)
 
         if node_value == 0:
             return Falsum()
@@ -237,7 +202,7 @@ class AtomicFormulaVariable(FormulaVariable):
         else:
             symbol = self.language.relation_symbols[node_value - 2]
             arity = len(symbol.input_sorts)
-            return RelationApplication(symbol, tuple(subterm.get_from_model(model) for subterm in self.subterms[:arity]))
+            return RelationApplication(symbol, tuple(subterm.get_from_smt_model(model) for subterm in self.subterms[:arity]))
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         """
@@ -285,7 +250,7 @@ class AtomicFormulaVariable(FormulaVariable):
 
         return constraint
 
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         """
         Interpret the undetermined atomic formula in the given structure and valuation
         """
@@ -303,7 +268,7 @@ class AtomicFormulaVariable(FormulaVariable):
                 symbol = self.language.relation_symbols[node_value - 2]
                 arity = len(symbol.input_sorts)
                 arguments = tuple(
-                    subterm.interpret_in_structure(sort, structure, valuation)
+                    subterm.interpret_as_sort(sort, structure, valuation)
                     for sort, subterm in zip(symbol.input_sorts, self.subterms[:arity])
                 )
                 interp = smt.Ite(self.node.equals(node_value), structure.interpret_relation(symbol, *arguments), interp)
@@ -311,176 +276,7 @@ class AtomicFormulaVariable(FormulaVariable):
         return interp
 
 
-@dataclass
-class ConjunctionFormulaVariable(FormulaVariable):
-    conjuncts: Tuple[FormulaVariable, ...]
-
-    def __post_init__(self) -> None:
-        assert len(self.conjuncts) != 0
-
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        return tuple(set(sum(map(lambda c: c.get_free_variables(), self.conjuncts), ())))
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return smt.And(*(conjunct.get_constraint() for conjunct in self.conjuncts))
-
-    def get_from_model(self, model: smt.SMTModel) -> Formula:
-        conjuncts = tuple(conjunct.get_from_model(model) for conjunct in self.conjuncts)
-        formula = conjuncts[-1]
-
-        for conjunct in conjuncts[:-1][::-1]:
-            formula = Conjunction(conjunct, formula)
-
-        return formula
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        constraint = smt.TRUE()
-
-        for i, conjunct in enumerate(self.conjuncts):
-            if i + 1 != len(self.conjuncts):
-                assert isinstance(value, Conjunction)
-                constraint = smt.And(conjunct.equals(value.left), constraint)
-                value = value.right
-            else:
-                constraint = smt.And(conjunct.equals(value), constraint)
-
-        return constraint
-
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        return smt.And(*(
-            conjunct.interpret_in_structure(structure, valuation)
-            for conjunct in self.conjuncts
-        ))
-
-
-@dataclass
-class DisjunctionFormulaVariable(FormulaVariable):
-    disjuncts: Tuple[FormulaVariable, ...]
-
-    def __post_init__(self) -> None:
-        assert len(self.disjuncts) != 0
-
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        return tuple(set(sum(map(lambda c: c.get_free_variables(), self.disjuncts), ())))
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return smt.And(*(disjunct.get_constraint() for disjunct in self.disjuncts))
-
-    def get_from_model(self, model: smt.SMTModel) -> Formula:
-        disjuncts = tuple(disjunct.get_from_model(model) for disjunct in self.disjuncts)
-        formula = disjuncts[-1]
-
-        for disjunct in disjuncts[:-1][::-1]:
-            formula = Disjunction(disjunct, formula)
-
-        return formula
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        constraint = smt.TRUE()
-
-        for i, disjunct in enumerate(self.disjuncts):
-            if i + 1 != len(self.disjuncts):
-                assert isinstance(value, Disjunction)
-                constraint = smt.And(disjunct.equals(value.left), constraint)
-                value = value.right
-            else:
-                constraint = smt.And(disjunct.equals(value), constraint)
-
-        return constraint
-
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        return smt.Or(*(
-            disjunct.interpret_in_structure(structure, valuation)
-            for disjunct in self.disjuncts
-        ))
-
-
-@dataclass
-class ImplicationFormulaVariable(FormulaVariable):
-    left: FormulaVariable
-    right: FormulaVariable
-
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        # TODO: order?
-        return tuple(set(self.left.get_free_variables() + self.right.get_free_variables()))
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return smt.And(self.left.get_constraint(), self.right.get_constraint())
-
-    def get_from_model(self, model: smt.SMTModel) -> Formula:
-        return Implication(self.left.get_from_model(model), self.right.get_from_model(model))
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, Implication)
-        return smt.And(self.left.equals(value.left), self.right.equals(value.right))
-
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        return smt.Implies(
-            self.left.interpret_in_structure(structure, valuation),
-            self.right.interpret_in_structure(structure, valuation),
-        )
-
-
-class QuantifierBlockFormulaVariable(FormulaVariable):
-    def __init__(self, is_forall: bool, variables: Tuple[Variable, ...], body: FormulaVariable):
-        self.is_forall = is_forall # True for forall, False for exists
-        self.variables = variables
-        self.body = body
-
-    def get_free_variables(self) -> Tuple[Variable, ...]:
-        return tuple(var for var in self.body.get_free_variables() if var not in self.variables)
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return self.body.get_constraint()
-
-    def get_from_model(self, model: smt.SMTModel) -> Formula:
-        """
-        Get a concrete atomic formula from the model
-        """
-        formula = self.body.get_from_model(model)
-
-        for var in self.variables[::-1]:
-            formula = UniversalQuantification(var, formula) if self.is_forall else ExistentialQuantification(var, formula)
-
-        return formula
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        for var in self.variables:
-            if self.is_forall:
-                assert isinstance(value, UniversalQuantification) and value.variable == var, \
-                       f"cannot match the first quantifiers with variables {self.variables}"
-            else:
-                assert isinstance(value, ExistentialQuantification) and value.variable == var, \
-                       f"cannot match the first quantifiers with variables {self.variables}"
-            value = value.body
-
-        return self.body.equals(value)
-
-    def interpret_in_structure(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        fresh_vars = structure.get_fresh_valuation(self.variables)
-        interp = self.body.interpret_in_structure(structure, { **valuation, **fresh_vars })
-
-        for var in self.variables[::-1]:
-            carrier = structure.interpret_sort(var.sort)
-            if self.is_forall:
-                interp = carrier.universally_quantify(fresh_vars[var], interp)
-            else:
-                interp = carrier.existentially_quantify(fresh_vars[var], interp)
-
-        return interp
-
-
-class ForAllBlockFormulaVariable(QuantifierBlockFormulaVariable):
-    def __init__(self, variables: Tuple[Variable, ...], body: FormulaVariable):
-        super().__init__(True, variables, body)
-
-
-class ExistsBlockFormulaVariable(QuantifierBlockFormulaVariable):
-    def __init__(self, variables: Tuple[Variable, ...], body: FormulaVariable):
-        super().__init__(False, variables, body)
-
-
-class ModelVariable(VariableWithConstraint[Structure], Structure): ...
+class ModelVariable(Template[Structure], Structure): ...
 
 
 class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
@@ -559,7 +355,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
         
         for sentence in self.theory.sentences:
             if isinstance(sentence, Axiom):
-                constraint = smt.And(self.interpret_formula(sentence.formula), constraint)
+                constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
             elif isinstance(sentence, FixpointDefinition):
                 constraint = smt.And(self.get_constraints_for_least_fixpoint(sentence), constraint)
             else:
@@ -573,7 +369,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
         """
         
         # enforcing fixpoint
-        constraint = self.interpret_formula(definition.as_formula())
+        constraint = definition.as_formula().interpret(self, {})
 
         # use a rank function to enforce the least fixpoint
         relation_symbol = definition.relation_symbol
@@ -602,7 +398,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
                 smt.LT(rank_function(*args), rank_function(*smt_input_vars)),
                 old_interpretation(*args),
             )
-        interp = self.interpret_formula(definition.definition, valuation)
+        interp = definition.definition.interpret(self, valuation)
         self.relation_interpretations[relation_symbol] = old_interpretation
 
         rank_invariant = smt.Implies(
@@ -619,7 +415,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
 
         return constraint
 
-    def get_from_model(self, model: smt.SMTModel) -> Structure:
+    def get_from_smt_model(self, model: smt.SMTModel) -> Structure:
         """
         Concretize a structure
         """
@@ -713,8 +509,11 @@ class FOProvableStructure(UninterpretedStructure):
         """
         Interpret the fixpoint definition in the current structure as an SMT function
         """
-        valuation = self.get_fresh_valuation(definition.variables)
-        smt_formula = self.interpret_formula(definition.definition, valuation)
+        valuation = {
+            var: smt.FreshSymbol(self.get_smt_sort(var.sort))
+            for var in definition.variables
+        }
+        smt_formula = definition.definition.interpret(self, valuation)
 
         def interp(*args: smt.SMTTerm) -> smt.SMTTerm:
             assert len(args) == len(definition.variables)
@@ -733,32 +532,32 @@ class CEIGSynthesizer:
     def __init__(
         self,
         theory: Theory,
-        formula_var: FormulaVariable,
+        template: Formula,
         counterexample_var: ModelVariable,
         fo_provable_depth: int,
     ):
         """
         <theory> is the theory in which the synthesized formulas should hold
-        <formula_var> is the template for the formula to be synthesized
+        <template> is the template for the formula to be synthesized
         <model_var> is the template for a counterexample model
         <fo_provable_depth> indicates that the synthesized formula should not be FO-provable at that unfolding depth
         """
 
         self.theory = theory
-        self.formula_var = formula_var
+        self.template = template
         self.counterexample_var = counterexample_var
         self.fo_provable_structure = FOProvableStructure(theory, fo_provable_depth)
 
-    def synthesize(self, solver_name: str = "z3") -> Generator[Formula, None, None]:
-        free_vars = self.formula_var.get_free_variables()
+    def synthesize(self, solver_name: str = "z3", logic: Optional[str] = None) -> Generator[Formula, None, None]:
+        free_vars = self.template.get_free_variables()
 
-        with smt.Solver(name=solver_name) as gen_solver, smt.Solver(name=solver_name) as check_solver:
+        with smt.Solver(name=solver_name, logic=logic) as gen_solver, smt.Solver(name=solver_name, logic=logic) as check_solver:
             # gen_solver is used to generate candidates
             # check_solver is used to generate counterexamples
 
             # load templates to solvers
-            self.formula_var.add_to_solver(gen_solver)
-            self.counterexample_var.add_to_solver(check_solver)
+            gen_solver.add_assertion(self.template.get_constraint())
+            check_solver.add_assertion(self.counterexample_var.get_constraint())
 
             # when negated, the (universally quantified) free variables
             # become existentially quantified, we do skolemization here
@@ -772,29 +571,26 @@ class CEIGSynthesizer:
             }
 
             # the formula should not be FO provable
-            gen_solver.add_assertion(smt.Not(self.formula_var.interpret_in_structure(self.fo_provable_structure, gen_skolem_constants)))
+            gen_solver.add_assertion(smt.Not(self.template.interpret(self.fo_provable_structure, gen_skolem_constants)))
 
             while gen_solver.solve():
                 # get a candidate from the SMT model
-                candidate = self.formula_var.get_from_model(gen_solver.get_model())
+                candidate = self.template.get_from_smt_model(gen_solver.get_model())
                 print(candidate, "... ", end="", flush=True)
 
                 # try to find a finite counterexample
                 check_solver.push()
-                check_solver.add_assertion(smt.Not(self.counterexample_var.interpret_formula(candidate, check_skolem_constants)))
+                check_solver.add_assertion(smt.Not(candidate.interpret(self.counterexample_var, check_skolem_constants)))
 
                 if check_solver.solve():
                     # a concrete counterexample
-                    counterexample = self.counterexample_var.get_from_model(check_solver.get_model())
+                    counterexample = self.counterexample_var.get_from_smt_model(check_solver.get_model())
                     check_solver.pop()
 
                     # add the new counterexample
                     print("✘")
                     gen_solver.add_assertion(
-                        ForAllBlockFormulaVariable(
-                            free_vars,
-                            self.formula_var,
-                        ).interpret_in_structure(counterexample),
+                        self.template.quantify_all_free_variables().interpret(counterexample, {}),
                     )
                 else:
                     check_solver.pop()
@@ -804,7 +600,7 @@ class CEIGSynthesizer:
                     # add duplication-avoidance constraint
                     for assignment in itertools.permutations(gen_skolem_constants.values()):
                         permuted_skolem_constants = dict(zip(free_vars, assignment))
-                        gen_solver.add_assertion(self.fo_provable_structure.interpret_formula(candidate, permuted_skolem_constants))
+                        gen_solver.add_assertion(candidate.interpret(self.fo_provable_structure, permuted_skolem_constants))
 
                     # output the candidate
                     yield candidate

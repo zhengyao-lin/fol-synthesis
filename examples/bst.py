@@ -1,9 +1,8 @@
 from typing import Any
 
 from synthesis import smt
-from synthesis.fol.ast import *
+from synthesis.fol import *
 from synthesis.synthesis import *
-from synthesis.structure import *
 
 
 sort_pointer = Sort("Pointer")
@@ -143,16 +142,18 @@ leftmost_defn = FixpointDefinition(
 
 theory = Theory(language, (in_bst_defn, btree_defn, bst_defn, leftmost_defn))
 
-synt_var = ImplicationFormulaVariable(
-    ConjunctionFormulaVariable((
+template = Implication(
+    Conjunction(
+        Conjunction(
+            AtomicFormulaVariable(synth_language, (x,), 0),
+            AtomicFormulaVariable(synth_language, (x,), 0),
+        ),
         AtomicFormulaVariable(synth_language, (x,), 0),
-        AtomicFormulaVariable(synth_language, (x,), 0),
-        AtomicFormulaVariable(synth_language, (x,), 0),
-    )),
+    ),
     AtomicFormulaVariable(synth_language, (x,), 1),
 )
 
 model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 5 })
 
-for formula in CEIGSynthesizer(theory, synt_var, model_var, 2).synthesize(): ...
+for formula in CEIGSynthesizer(theory, template, model_var, 2).synthesize(): ...
     # print("### found", formula)

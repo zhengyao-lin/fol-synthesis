@@ -1,10 +1,15 @@
-from typing import Tuple, Dict, Mapping, Iterable
+"""
+Structure of a many-sorted language
+"""
+
+from typing import Tuple, Mapping
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
-from .fol.ast import *
-from . import smt
+from synthesis import smt
+
+from .language import Sort, FunctionSymbol, RelationSymbol, Language
 
 
 class CarrierSet(ABC):
@@ -40,65 +45,68 @@ class Structure(ABC):
     def get_smt_sort(self, sort: Sort) -> smt.SMTSort:
         return self.interpret_sort(sort).get_smt_sort()
 
-    def get_fresh_valuation(self, variables: Iterable[Variable]) -> Dict[Variable, smt.SMTTerm]:
-        """
-        Create a valuation with each variable in the list mapped to a fresh variable of suitable SMT sort
-        """
-        return {
-            var: smt.FreshSymbol(self.get_smt_sort(var.sort))
-            for var in variables
-        }
+    # def get_fresh_valuation(self, variables: Iterable[Variable]) -> Dict[Variable, smt.SMTTerm]:
+    #     """
+    #     Create a valuation with each variable in the list mapped to a fresh variable of suitable SMT sort
+    #     """
+    #     return {
+    #         var: smt.FreshSymbol(self.get_smt_sort(var.sort))
+    #         for var in variables
+    #     }
 
-    def interpret_term(self, term: Term, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        if isinstance(term, Variable):
-            assert term in valuation, f"variable {term} not provided in the valuation {valuation}"
-            return valuation[term]
+    # def interpret_term(self, term: Term, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+    #     if isinstance(term, Variable):
+    #         assert term in valuation, f"variable {term} not provided in the valuation {valuation}"
+    #         return valuation[term]
 
-        elif isinstance(term, Application):
-            arguments = (self.interpret_term(argument, valuation) for argument in term.arguments)
-            return self.interpret_function(term.function_symbol, *arguments)
+    #     elif isinstance(term, Application):
+    #         arguments = (self.interpret_term(argument, valuation) for argument in term.arguments)
+    #         return self.interpret_function(term.function_symbol, *arguments)
 
-        assert False, f"unable to interpret {term}"
+    #     assert False, f"unable to interpret {term}"
 
-    def interpret_formula(self, formula: Formula, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
-        if isinstance(formula, Verum):
-            return smt.TRUE()
+    # def interpret_formula(self, formula: Formula, valuation: Mapping[Variable, smt.SMTTerm] = {}) -> smt.SMTTerm:
+    #     if isinstance(formula, Verum):
+    #         return smt.TRUE()
 
-        elif isinstance(formula, Falsum):
-            return smt.FALSE()
+    #     elif isinstance(formula, Falsum):
+    #         return smt.FALSE()
 
-        elif isinstance(formula, RelationApplication):
-            arguments = (self.interpret_term(argument, valuation) for argument in formula.arguments) 
-            return self.interpret_relation(formula.relation_symbol, *arguments)
+    #     elif isinstance(formula, RelationApplication):
+    #         arguments = (self.interpret_term(argument, valuation) for argument in formula.arguments) 
+    #         return self.interpret_relation(formula.relation_symbol, *arguments)
 
-        elif isinstance(formula, Negation):
-            return smt.Not(self.interpret_formula(formula.formula, valuation))
+    #     elif isinstance(formula, Negation):
+    #         return smt.Not(self.interpret_formula(formula.formula, valuation))
 
-        elif isinstance(formula, Conjunction):
-            return smt.And(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+    #     elif isinstance(formula, Conjunction):
+    #         return smt.And(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
 
-        elif isinstance(formula, Disjunction):
-            return smt.Or(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+    #     elif isinstance(formula, Disjunction):
+    #         return smt.Or(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
 
-        elif isinstance(formula, Implication):
-            return smt.Implies(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+    #     elif isinstance(formula, Implication):
+    #         return smt.Implies(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
 
-        elif isinstance(formula, Equivalence):
-            return smt.Iff(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
+    #     elif isinstance(formula, Equivalence):
+    #         return smt.Iff(self.interpret_formula(formula.left, valuation), self.interpret_formula(formula.right, valuation))
 
-        elif isinstance(formula, UniversalQuantification):
-            carrier = self.interpret_sort(formula.variable.sort)
-            smt_var = smt.FreshSymbol(carrier.get_smt_sort())
-            body = self.interpret_formula(formula.body, { **valuation, formula.variable: smt_var })
-            return carrier.universally_quantify(smt_var, body)
+    #     elif isinstance(formula, UniversalQuantification):
+    #         carrier = self.interpret_sort(formula.variable.sort)
+    #         smt_var = smt.FreshSymbol(carrier.get_smt_sort())
+    #         body = self.interpret_formula(formula.body, { **valuation, formula.variable: smt_var })
+    #         return carrier.universally_quantify(smt_var, body)
 
-        elif isinstance(formula, ExistentialQuantification):
-            carrier = self.interpret_sort(formula.variable.sort)
-            smt_var = smt.FreshSymbol(carrier.get_smt_sort())
-            body = self.interpret_formula(formula.body, { **valuation, formula.variable: smt_var })
-            return carrier.existentially_quantify(smt_var, body)
+    #     elif isinstance(formula, ExistentialQuantification):
+    #         carrier = self.interpret_sort(formula.variable.sort)
+    #         smt_var = smt.FreshSymbol(carrier.get_smt_sort())
+    #         body = self.interpret_formula(formula.body, { **valuation, formula.variable: smt_var })
+    #         return carrier.existentially_quantify(smt_var, body)
 
-        assert False, f"unable to interpret {formula}"
+    #     elif isinstance(formula, Interpretable):
+    #         return formula.interpret_in_structure(self, valuation)
+
+    #     assert False, f"unable to interpret {formula}"
 
 
 @dataclass

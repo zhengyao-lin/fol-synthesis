@@ -1,7 +1,7 @@
 from typing import Any
 
 from synthesis.smt import get_model, Solver, Not
-from synthesis.fol.ast import *
+from synthesis.fol import *
 from synthesis.synthesis import *
 
 
@@ -16,12 +16,12 @@ language = Language(
 
 free_vars = (Variable("x", sort_a), Variable("y", sort_b))
 
-def exhaust_variable(var: VariableWithConstraint[Any]) -> None:
+def exhaust_variable(var: Template[Any]) -> None:
     with Solver(name="z3") as solver:
-        var.add_to_solver(solver)
+        solver.add_assertion(var.get_constraint())
 
         while solver.solve():
-            val = var.get_from_model(solver.get_model())
+            val = var.get_from_smt_model(solver.get_model())
             print(val)
             solver.add_assertion(Not(var.equals(val)))
 

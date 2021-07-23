@@ -2,7 +2,7 @@ from typing import Any
 
 from lark import Lark, Transformer
 
-from .ast import *
+from .syntax import *
 
 
 class Command:

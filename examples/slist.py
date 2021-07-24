@@ -1,0 +1,63 @@
+from typing import Any
+
+from synthesis import smt
+from synthesis.fol import *
+from synthesis.synthesis import *
+from synthesis.parser.parser import Parser
+
+
+theory = Parser.parse_theory(r"""
+theory SLIST
+    sort Pointer
+    sort Int [smt("Int")]
+
+    constant nil: Pointer
+    function next: Pointer -> Pointer
+
+    function key: Pointer -> Int
+
+    relation list: Pointer
+    relation slist: Pointer
+    relation lseg: Pointer Pointer
+    relation slseg: Pointer Pointer
+    relation in_lseg: Pointer Pointer Pointer
+
+    relation eq: Pointer Pointer [smt("(= #1 #2)")]
+    relation le_int: Int Int [smt("(<= #1 #2)")]
+
+    fixpoint in_lseg(x, y, z) = not eq(y, z) /\ (eq(x, y) \/ in_lseg(x, next(y), z))
+    fixpoint list(x) = eq(x, nil()) \/ (list(next(x)) /\ not in_lseg(x, next(x), nil()))
+    fixpoint lseg(x, y) = eq(x, y) \/ (lseg(next(x), y) /\ not in_lseg(x, next(x), y))
+
+    fixpoint slist(x) = eq(x, nil()) \/ eq(next(x), nil()) \/ (le_int(key(x), key(next(x))) /\ slist(next(x)) /\ not in_lseg(x, next(x), nil()))
+
+    fixpoint slseg(x, y) = eq(x, y) \/ (le_int(key(x), key(next(x))) /\ lseg(next(x), y) /\ not in_lseg(x, next(x), y))
+end
+""")
+
+language = theory.language.get_sublanguage(
+    ("Pointer",),
+    ("nil", "next"),
+    ("list", "lseg", "slist", "slseg"),
+)
+
+sort_pointer = language.get_sort("Pointer")
+assert sort_pointer is not None
+
+x = Variable("x", sort_pointer)
+y = Variable("y", sort_pointer)
+z = Variable("z", sort_pointer)
+
+# free variables are universally quantified
+template = Implication(
+    Conjunction(
+        AtomicFormulaVariable(language, (x, y, z), 0),
+        AtomicFormulaVariable(language, (x, y, z), 0),
+    ),
+    AtomicFormulaVariable(language, (x, y, z), 0),
+)
+
+model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
+
+for formula in CEIGSynthesizer(theory, template, model_var, 2).synthesize(): ...
+    # print("### found", formula)

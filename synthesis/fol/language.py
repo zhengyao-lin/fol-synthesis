@@ -46,6 +46,26 @@ class Language:
     function_symbols: Tuple[FunctionSymbol, ...]
     relation_symbols: Tuple[RelationSymbol, ...]
 
+    # TODO: add dict for sorts/functions/relations
+
+    def get_sort(self, name: str) -> Optional[Sort]:
+        for sort in self.sorts:
+            if sort.name == name:
+                return sort
+        return None
+
+    def get_function_symbol(self, name: str) -> Optional[FunctionSymbol]:
+        for symbol in self.function_symbols:
+            if symbol.name == name:
+                return symbol
+        return None
+
+    def get_relation_symbol(self, name: str) -> Optional[RelationSymbol]:
+        for symbol in self.relation_symbols:
+            if symbol.name == name:
+                return symbol
+        return None
+
     def get_max_function_arity(self) -> int:
         return max(tuple(len(symbol.input_sorts) for symbol in self.function_symbols) + (0,))
 

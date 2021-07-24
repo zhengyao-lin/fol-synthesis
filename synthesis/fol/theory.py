@@ -104,7 +104,7 @@ class Axiom(Sentence):
     formula: Formula
 
 
-@dataclass
-class Theory:
+@dataclass(frozen=True)
+class Theory(BaseAST):
     language: Language
     sentences: Tuple[Sentence, ...]

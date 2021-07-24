@@ -113,6 +113,7 @@ class Application(Term):
         return self
 
 
+@dataclass
 class Verum(Formula):
     def __str__(self) -> str:
         return "⊤"
@@ -133,6 +134,7 @@ class Verum(Formula):
         return self
 
 
+@dataclass
 class Falsum(Formula):
     def __str__(self) -> str:
         return "⊥"

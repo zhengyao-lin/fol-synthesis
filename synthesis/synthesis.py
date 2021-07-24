@@ -602,5 +602,7 @@ class CEIGSynthesizer:
                         permuted_skolem_constants = dict(zip(free_vars, assignment))
                         gen_solver.add_assertion(candidate.interpret(self.fo_provable_structure, permuted_skolem_constants))
 
+                    # gen_solver.add_assertion(smt.Not(self.template.equals(candidate)))
+
                     # output the candidate
                     yield candidate

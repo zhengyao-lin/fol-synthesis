@@ -21,9 +21,9 @@ theory DLIST
     function key: Pointer -> Int
     relation in_keys: Int Pointer
 
-    fixpoint in_keys(v, x) =
-        not eq_pointer(x, nil()) /\
-        (eq_int(v, key(x)) \/ in_keys(v, next(x)))
+    // fixpoint in_keys(v, x) =
+    //     not eq_pointer(x, nil()) /\
+    //    (eq_int(v, key(x)) \/ in_keys(v, next(x)))
 
     // constant emp: Set              [smt("((as const (Set Int)) false)")]
     // function union: Set Set -> Set [smt("(union #1 #2)")]
@@ -110,7 +110,7 @@ def test1():
         AtomicFormulaVariable(language, (x, y), 0),
     )
 
-    model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 5 })
+    model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 
     for _ in CEIGSynthesizer(theory, template, model_var, 2).synthesize(): ...
 

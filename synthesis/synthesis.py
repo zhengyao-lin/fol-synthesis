@@ -547,9 +547,19 @@ class CEIGSynthesizer:
         self.template = template
         self.counterexample_var = counterexample_var
         self.fo_provable_structure = FOProvableStructure(theory, fo_provable_depth)
+        self.uninterp_structure = UninterpretedStructure(theory.language)
 
-    def synthesize(self, solver_name: str = "z3", logic: Optional[str] = None) -> Generator[Formula, None, None]:
+    def synthesize(
+        self,
+        solver_name: str = "z3",
+        logic: Optional[str] = None,
+        include_fo_provable: bool = False,
+        include_trivial: bool = False, # trivial means true in any structure (without the axioms)
+        remove_fo_duplicate: bool = False, # remove duplicated formulas using fo reasoning
+    ) -> Generator[Formula, None, None]:
         free_vars = self.template.get_free_variables()
+
+        all_true_candidates = []
 
         with smt.Solver(name=solver_name, logic=logic) as gen_solver, smt.Solver(name=solver_name, logic=logic) as check_solver:
             # gen_solver is used to generate candidates
@@ -561,6 +571,10 @@ class CEIGSynthesizer:
 
             # when negated, the (universally quantified) free variables
             # become existentially quantified, we do skolemization here
+            uninterp_skolem_constants = { # for the uninterp structure
+                v: self.uninterp_structure.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
+                for v in free_vars
+            }
             gen_skolem_constants = { # for the fo provable structure
                 v: self.fo_provable_structure.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
                 for v in free_vars
@@ -570,8 +584,17 @@ class CEIGSynthesizer:
                 for v in free_vars
             }
 
+            # add all non-fixpoint-definition axioms
+            for sentence in self.theory.sentences:
+                if isinstance(sentence, Axiom):
+                    gen_solver.add_assertion(self.template.interpret(self.fo_provable_structure, gen_skolem_constants))
+
+            if not include_trivial:
+                gen_solver.add_assertion(smt.Not(self.template.interpret(self.uninterp_structure, uninterp_skolem_constants)))
+
             # the formula should not be FO provable
-            gen_solver.add_assertion(smt.Not(self.template.interpret(self.fo_provable_structure, gen_skolem_constants)))
+            if not include_fo_provable:
+                gen_solver.add_assertion(smt.Not(self.template.interpret(self.fo_provable_structure, gen_skolem_constants)))
 
             while gen_solver.solve():
                 # get a candidate from the SMT model
@@ -597,12 +620,32 @@ class CEIGSynthesizer:
                     # no counterexample found, maybe this is true
                     print("✓")
 
-                    # add duplication-avoidance constraint
-                    for assignment in itertools.permutations(gen_skolem_constants.values()):
-                        permuted_skolem_constants = dict(zip(free_vars, assignment))
-                        gen_solver.add_assertion(candidate.interpret(self.fo_provable_structure, permuted_skolem_constants))
-
-                    # gen_solver.add_assertion(smt.Not(self.template.equals(candidate)))
+                    all_true_candidates.append(candidate)
 
                     # output the candidate
                     yield candidate
+
+                    # add duplication-avoidance constraint
+                    if remove_fo_duplicate:
+                        if include_fo_provable:
+                            gen_solver.add_assertion(smt.Not(
+                                smt.Implies(
+                                    smt.And(*(
+                                        old_candidate.quantify_all_free_variables().interpret(self.fo_provable_structure, {})
+                                        for old_candidate in all_true_candidates
+                                    )),
+                                    self.template.quantify_all_free_variables().interpret(self.fo_provable_structure, {}),
+                                )
+                            ))
+                        else:
+                            gen_solver.add_assertion(
+                                candidate.quantify_all_free_variables().interpret(self.fo_provable_structure, {}),
+                            )
+                    else:
+                        # use a weaker version that does not require quantifiers
+                        for assignment in itertools.permutations(gen_skolem_constants.values()):
+                            permuted_skolem_constants = dict(zip(free_vars, assignment))
+                            gen_solver.add_assertion(candidate.interpret(self.fo_provable_structure, permuted_skolem_constants))
+
+                    if include_fo_provable:
+                        gen_solver.add_assertion(smt.Not(self.template.equals(candidate)))

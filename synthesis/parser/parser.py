@@ -198,8 +198,8 @@ class Parser:
 
         ?fol_formula: fol_equivalence
 
-        fol_quantification: FORALL quantified_variable+ "." fol_formula -> universal_quantification
-                          | EXISTS quantified_variable+ "." fol_formula -> existential_quantification
+        fol_quantification: FORALL quantified_variable ["," quantified_variable]+ "." fol_formula -> universal_quantification
+                          | EXISTS quantified_variable ["," quantified_variable]+ "." fol_formula -> existential_quantification
     """
 
     THEORY_PARSER = Lark(

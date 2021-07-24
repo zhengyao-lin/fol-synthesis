@@ -80,6 +80,10 @@ class Variable(Term):
     def get_from_smt_model(self, model: smt.SMTModel) -> Term:
         return self
 
+    def equals(self, value: Term) -> smt.SMTTerm:
+        assert self == value
+        return smt.TRUE()
+
 
 @dataclass(frozen=True)
 class Application(Term):
@@ -112,6 +116,10 @@ class Application(Term):
     def get_from_smt_model(self, model: smt.SMTModel) -> Term:
         return self
 
+    def equals(self, value: Term) -> smt.SMTTerm:
+        assert isinstance(value, Application)
+        return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
+
 
 @dataclass
 class Verum(Formula):
@@ -133,6 +141,10 @@ class Verum(Formula):
     def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
         return self
 
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert self == value
+        return smt.TRUE()
+
 
 @dataclass
 class Falsum(Formula):
@@ -153,6 +165,10 @@ class Falsum(Formula):
 
     def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
         return self
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert self == value
+        return smt.TRUE()
 
 
 @dataclass(frozen=True)
@@ -187,6 +203,10 @@ class RelationApplication(Formula):
             self.relation_symbol,
             tuple(argument.get_from_smt_model(model) for argument in self.arguments),
         )
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, RelationApplication)
+        return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
 
 
 AtomicFormula = Union[Verum, Falsum, RelationApplication]
@@ -224,6 +244,13 @@ class Conjunction(Formula):
             self.right.get_from_smt_model(model),
         )
 
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, Conjunction)
+        return smt.And(
+            self.left.equals(value.left),
+            self.right.equals(value.right),
+        )
+
 
 @dataclass(frozen=True)
 class Disjunction(Formula):
@@ -257,6 +284,13 @@ class Disjunction(Formula):
             self.right.get_from_smt_model(model),
         )
 
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, Disjunction)
+        return smt.And(
+            self.left.equals(value.left),
+            self.right.equals(value.right),
+        )
+
 
 @dataclass(frozen=True)
 class Negation(Formula):
@@ -279,6 +313,10 @@ class Negation(Formula):
 
     def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
         return Negation(self.formula.get_from_smt_model(model))
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, Negation)
+        return self.formula.equals(value.formula)
 
 
 @dataclass(frozen=True)
@@ -311,6 +349,13 @@ class Implication(Formula):
         return Implication(
             self.left.get_from_smt_model(model),
             self.right.get_from_smt_model(model),
+        )
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, Implication)
+        return smt.And(
+            self.left.equals(value.left),
+            self.right.equals(value.right),
         )
 
 
@@ -346,6 +391,13 @@ class Equivalence(Formula):
             self.right.get_from_smt_model(model),
         )
 
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, Equivalence)
+        return smt.And(
+            self.left.equals(value.left),
+            self.right.equals(value.right),
+        )
+
 
 @dataclass(frozen=True)
 class UniversalQuantification(Formula):
@@ -378,6 +430,11 @@ class UniversalQuantification(Formula):
             self.body.get_from_smt_model(model),
         )
 
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, UniversalQuantification) and \
+               self.variable == value.variable
+        return self.body.equals(value.body)
+
 
 @dataclass(frozen=True)
 class ExistentialQuantification(Formula):
@@ -409,3 +466,8 @@ class ExistentialQuantification(Formula):
             self.variable,
             self.body.get_from_smt_model(model),
         )
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        assert isinstance(value, ExistentialQuantification) and \
+               self.variable == value.variable
+        return self.body.equals(value.body)

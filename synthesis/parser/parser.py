@@ -10,28 +10,40 @@ class ASTTransformer(Transformer[BaseAST]):
     def identifier(self, args: List[Token]) -> str:
         return str(args[0])
 
+    def string(self, args: List[Token]) -> str:
+        value = str(args[0])
+        assert value.startswith("\"") and value.endswith("\"")
+        return value[1:-1]
+
     def theory(self, args: List[Any]) -> UnresolvedTheory:
         name, sentences = args
         return UnresolvedTheory(name, tuple(sentences))
+
+    def attribute(self, args: List[str]) -> Attribute:
+        name, *arguments = args
+        return Attribute(name, tuple(arguments))
+
+    def attributes(self, args: List[Attribute]) -> Tuple[Attribute, ...]:
+        return tuple(args)
 
     def sentences(self, args: List[Sentence]) -> Tuple[Sentence, ...]:
         return tuple(args)
 
     def sort_definition(self, args: List[str]) -> UnresolvedSortDefinition:
-        sort_name, = args
-        return UnresolvedSortDefinition(Sort(sort_name))
+        sort_name, attributes = args
+        return UnresolvedSortDefinition(Sort(sort_name), attributes)
 
     def function_definition(self, args: List[str]) -> UnresolvedFunctionDefinition:
-        name, *input_sorts, output_sort = args
-        return UnresolvedFunctionDefinition(name, tuple(input_sorts), output_sort)
+        name, *input_sorts, output_sort, attributes = args
+        return UnresolvedFunctionDefinition(name, tuple(input_sorts), output_sort, attributes)
 
     def constant_definition(self, args: List[str]) -> UnresolvedFunctionDefinition:
-        name, output_sort = args
-        return UnresolvedFunctionDefinition(name, (), output_sort)
+        name, output_sort, attributes = args
+        return UnresolvedFunctionDefinition(name, (), output_sort, attributes)
 
     def relation_definition(self, args: List[str]) -> UnresolvedRelationDefinition:
-        name, *input_sorts = args
-        return UnresolvedRelationDefinition(name, tuple(input_sorts))
+        name, *input_sorts, attributes = args
+        return UnresolvedRelationDefinition(name, tuple(input_sorts), attributes)
 
     def fixpoint_definition(self, args: List[Any]) -> UnresolvedFixpointDefinition:
         name, *variables, formula = args
@@ -114,6 +126,8 @@ class ASTTransformer(Transformer[BaseAST]):
 
 class Parser:
     SYNTAX = r"""
+        %import common.ESCAPED_STRING -> STRING
+
         INLINE_COMMENT: /\/\/[^\n]*/
         BLOCK_COMMENT: /\/\*((.|\n)(?<!\*\/))*\*\//
 
@@ -131,17 +145,22 @@ class Parser:
         EXISTS.2: "exists"
 
         identifier: IDENTIFIER
+        string: STRING
 
         theory: "theory" identifier sentences "end"
 
-        sentences: [sentence sentence*]
+        attribute: identifier "(" string ["," string]* ")"
+                 | identifier
 
+        attributes: ["[" attribute ["," attribute]* "]"]
+
+        sentences: [sentence sentence*]
         subtheories: [identifier identifier*]
 
-        sentence: "sort" identifier                                                        -> sort_definition
-                | "function" identifier ":" identifier+ "->" identifier                    -> function_definition
-                | "constant" identifier ":" identifier                                     -> constant_definition
-                | "relation" identifier ":" identifier*                                    -> relation_definition
+        sentence: "sort" identifier attributes                                             -> sort_definition
+                | "function" identifier ":" identifier+ "->" identifier attributes         -> function_definition
+                | "constant" identifier ":" identifier attributes                          -> constant_definition
+                | "relation" identifier ":" identifier* attributes                         -> relation_definition
                 | "fixpoint" identifier "(" [variable ("," variable)*] ")" "=" fol_formula -> fixpoint_definition
                 | "axiom" fol_formula                                                      -> axiom
 
@@ -200,15 +219,15 @@ class Parser:
 
 
 print(Parser.parse_theory(r"""
-theory LIST(INT)
-    sort S
+theory LIST
+    sort S                  [smt("Int")]
     sort R
 
     // hmm
 
     function f: S S S -> S
-    constant c: S
-    relation R: S S S
+    constant c: S           [smt("0")]
+    relation R: S S S       [smt("(= (+ #1 #2) #3)")]
 
     /* wuu */
 

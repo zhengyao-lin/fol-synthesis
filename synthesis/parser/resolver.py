@@ -302,8 +302,31 @@ class VariableSortResolver(CopyVisitor):
 
 class Resolver:
     @staticmethod
+    def get_smt_attribute(attributes: Tuple[Attribute, ...]) -> Optional[str]:
+        """
+        Try to find an SMT attribut in a list of attributes
+        """
+        for attribute in attributes:
+            if attribute.name == "smt":
+                assert len(attribute.arguments) == 1, "smt attribute requires exactly one argument"
+                return attribute.arguments[0]
+        return None
+
+    @staticmethod
     def collect_sorts(theory: UnresolvedTheory) -> Tuple[Sort, ...]:
-        return tuple(sentence.sort for sentence in theory.sentences if isinstance(sentence, UnresolvedSortDefinition))
+        sorts = []
+
+        for sentence in theory.sentences:
+            if isinstance(sentence, UnresolvedSortDefinition):
+                sort = sentence.sort
+                
+                smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
+                if smt_attribute is not None:
+                    sort = Sort(sort.name, smt_hook=smt.SMTLIB.parse_sort(smt_attribute))
+
+                sorts.append(sort)
+
+        return tuple(sorts)
 
     @staticmethod
     def resolve_language(theory: UnresolvedTheory) -> Theory:
@@ -329,9 +352,15 @@ class Resolver:
                     assert name in sort_map, f"unknown sort {name}"
                     input_sorts.append(sort_map[name])
 
+                smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
+                if smt_attribute is not None:
+                    smt_hook: Optional[smt.SMTFunction] = smt.SMTLIB.parse_smt_function_from_template(smt_attribute)
+                else:
+                    smt_hook = None
+
                 assert sentence.name not in function_symbols, \
                        f"duplicated function symbol {sentence.name}"
-                function_symbols[sentence.name] = FunctionSymbol(tuple(input_sorts), output_sort, sentence.name)
+                function_symbols[sentence.name] = FunctionSymbol(tuple(input_sorts), output_sort, sentence.name, smt_hook)
 
             elif isinstance(sentence, UnresolvedRelationDefinition):
                 input_sorts = []
@@ -339,9 +368,15 @@ class Resolver:
                     assert name in sort_map, f"unknown sort {name}"
                     input_sorts.append(sort_map[name])
 
+                smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
+                if smt_attribute is not None:
+                    smt_hook: Optional[smt.SMTFunction] = smt.SMTLIB.parse_smt_function_from_template(smt_attribute)
+                else:
+                    smt_hook = None
+
                 assert sentence.name not in relation_symbols, \
                        f"duplicated relation symbol {sentence.name}"
-                relation_symbols[sentence.name] = RelationSymbol(tuple(input_sorts), sentence.name)
+                relation_symbols[sentence.name] = RelationSymbol(tuple(input_sorts), sentence.name, smt_hook)
 
             elif not isinstance(sentence, UnresolvedSortDefinition):
                 other_sentences.append(sentence)

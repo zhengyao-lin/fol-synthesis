@@ -11,6 +11,12 @@ from synthesis.fol.theory import *
 T = TypeVar("T")
 
 
+@dataclass(frozen=True)
+class Attribute:
+    name: str
+    arguments: Tuple[str, ...]
+
+
 class UnresolvedAST(Generic[T]):
     def substitute(self, substitution: Mapping[Variable, Term]) -> T:
         raise NotImplementedError()
@@ -61,6 +67,7 @@ class UnresolvedExistentialQuantification(UnresolvedAST[Formula], Formula):
 @dataclass(frozen=True)
 class UnresolvedSortDefinition(Sentence):
     sort: Sort
+    attributes: Tuple[Attribute, ...]
 
 
 @dataclass(frozen=True)
@@ -68,12 +75,14 @@ class UnresolvedFunctionDefinition(Sentence):
     name: str
     input_sorts: Tuple[str, ...]
     output_sort: str
+    attributes: Tuple[Attribute, ...]
 
 
 @dataclass(frozen=True)
 class UnresolvedRelationDefinition(Sentence):
     name: str
     input_sorts: Tuple[str, ...]
+    attributes: Tuple[Attribute, ...]
 
 
 @dataclass(frozen=True)

@@ -29,19 +29,19 @@ class ASTTransformer(Transformer[BaseAST]):
     def sentences(self, args: List[Sentence]) -> Tuple[Sentence, ...]:
         return tuple(args)
 
-    def sort_definition(self, args: List[str]) -> UnresolvedSortDefinition:
+    def sort_definition(self, args: List[Any]) -> UnresolvedSortDefinition:
         sort_name, attributes = args
         return UnresolvedSortDefinition(Sort(sort_name), attributes)
 
-    def function_definition(self, args: List[str]) -> UnresolvedFunctionDefinition:
+    def function_definition(self, args: List[Any]) -> UnresolvedFunctionDefinition:
         name, *input_sorts, output_sort, attributes = args
         return UnresolvedFunctionDefinition(name, tuple(input_sorts), output_sort, attributes)
 
-    def constant_definition(self, args: List[str]) -> UnresolvedFunctionDefinition:
+    def constant_definition(self, args: List[Any]) -> UnresolvedFunctionDefinition:
         name, output_sort, attributes = args
         return UnresolvedFunctionDefinition(name, (), output_sort, attributes)
 
-    def relation_definition(self, args: List[str]) -> UnresolvedRelationDefinition:
+    def relation_definition(self, args: List[Any]) -> UnresolvedRelationDefinition:
         name, *input_sorts, attributes = args
         return UnresolvedRelationDefinition(name, tuple(input_sorts), attributes)
 
@@ -178,7 +178,7 @@ class Parser:
         fol_atomic: TRUE                         -> verum
                   | FALSE                        -> falsum
                   // | fol_term "=" fol_term     -> equality
-                  | "(" fol_atomic ")"           -> paren_formula
+                  | "(" fol_formula ")"          -> paren_formula
                   | identifier "(" fol_terms ")" -> relation_application
 
         ?fol_negation: fol_atomic | NEGATION fol_atomic
@@ -216,23 +216,3 @@ class Parser:
         theory = ASTTransformer().transform(ast)
         assert isinstance(theory, UnresolvedTheory)
         return Resolver.resolve(theory)
-
-
-print(Parser.parse_theory(r"""
-theory LIST
-    sort S                  [smt("Int")]
-    sort R
-
-    // hmm
-
-    function f: S S S -> S
-    constant c: S           [smt("0")]
-    relation R: S S S       [smt("(= (+ #1 #2) #3)")]
-
-    /* wuu */
-
-    fixpoint R(x, y, z) = forall x:S . R(x, x, x) /\ R(x, x, x) \/ not forall x:S . not R(x, x, f(x, x, y)) \/ not exists y:S. (true)
-
-    // axiom forall x. R(x) /\ not R(x) -> R(x) <-> R(x)
-end
-"""))

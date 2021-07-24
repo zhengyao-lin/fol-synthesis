@@ -370,7 +370,7 @@ class Resolver:
 
                 smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
                 if smt_attribute is not None:
-                    smt_hook: Optional[smt.SMTFunction] = smt.SMTLIB.parse_smt_function_from_template(smt_attribute)
+                    smt_hook = smt.SMTLIB.parse_smt_function_from_template(smt_attribute)
                 else:
                     smt_hook = None
 

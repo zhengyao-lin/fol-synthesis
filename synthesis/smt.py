@@ -2,7 +2,7 @@ from typing import Any, Callable, Tuple
 
 from pysmt.shortcuts import FreshSymbol, TRUE, FALSE, And, Or, Not, Implies, Iff, Ite, Equals, BV, get_model, Solver, ForAll, Exists, Int, GT, GE, LT, LE, Bool # type: ignore
 from pysmt.typing import BOOL, INT, BVType, FunctionType # type: ignore
-from pysmt.smtlib.parser import SmtLibParser
+from pysmt.smtlib.parser import SmtLibParser # type: ignore
 
 from pysmt.shortcuts import Function as Apply
 

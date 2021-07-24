@@ -4,7 +4,7 @@ Many-sorted language
 
 from __future__ import annotations
 
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Iterable
 from dataclasses import dataclass
 
 from synthesis import smt
@@ -47,6 +47,21 @@ class Language:
     relation_symbols: Tuple[RelationSymbol, ...]
 
     # TODO: add dict for sorts/functions/relations
+
+    def get_sublanguage(
+        self,
+        sort_names: Iterable[str],
+        function_names: Iterable[str],
+        relation_names: Iterable[str],
+    ) -> Language:
+        sort_name_set = set(sort_names)
+        function_name_set = set(function_names)
+        relation_name_set = set(relation_names)
+        return Language(
+            tuple(sort for sort in self.sorts if sort.name in sort_name_set),
+            tuple(function_symbol for function_symbol in self.function_symbols if function_symbol.name in function_name_set),
+            tuple(relation_symbol for relation_symbol in self.relation_symbols if relation_symbol.name in relation_name_set),
+        )
 
     def get_sort(self, name: str) -> Optional[Sort]:
         for sort in self.sorts:

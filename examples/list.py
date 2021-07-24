@@ -3,67 +3,40 @@ from typing import Any
 from synthesis import smt
 from synthesis.fol import *
 from synthesis.synthesis import *
+from synthesis.parser.parser import Parser
 
 
-sort_pointer = Sort("Pointer")
+theory = Parser.parse_theory(r"""
+theory LIST
+    sort Pointer
 
-nil_symbol = FunctionSymbol((), sort_pointer, "nil")
-next_symbol = FunctionSymbol((sort_pointer,), sort_pointer, "next")
-list_symbol = RelationSymbol((sort_pointer,), "list")
-lseg_symbol = RelationSymbol((sort_pointer, sort_pointer), "lseg")
-in_lseg_symbol = RelationSymbol((sort_pointer, sort_pointer, sort_pointer), "in_lseg")
-pointer_eq_symbol = RelationSymbol((sort_pointer, sort_pointer), "eq", smt_hook=lambda x, y: smt.Equals(x, y))
+    constant nil: Pointer
+    function n: Pointer -> Pointer
 
-language = Language(
-    (sort_pointer,),
-    (nil_symbol, next_symbol),
-    (list_symbol, lseg_symbol),
+    relation list: Pointer
+    relation lseg: Pointer Pointer
+    relation in_lseg: Pointer Pointer Pointer
+
+    relation eq: Pointer Pointer [smt("(= #1 #2)")]
+
+    fixpoint in_lseg(x, y, z) = not eq(y, z) /\ (eq(x, y) \/ in_lseg(x, n(y), z))
+    fixpoint list(x) = eq(x, nil()) \/ (list(n(x)) /\ not in_lseg(x, n(x), nil()))
+    fixpoint lseg(x, y) = eq(x, y) \/ (lseg(n(x), y) /\ not in_lseg(x, n(x), y))
+end
+""")
+
+language = theory.language.get_sublanguage(
+    ("Pointer",),
+    ("nil", "n"),
+    ("list", "lseg"),
 )
 
-expanded_language = language.expand(Language((), (), (in_lseg_symbol, pointer_eq_symbol)))
+sort_pointer = language.get_sort("Pointer")
+assert sort_pointer is not None
 
 x = Variable("x", sort_pointer)
 y = Variable("y", sort_pointer)
 z = Variable("z", sort_pointer)
-
-# theory of list
-in_lseg_defn = FixpointDefinition(
-    in_lseg_symbol,
-    (x, y, z),
-    Conjunction(
-        Negation(RelationApplication(pointer_eq_symbol, (y, z))), # y != z
-        Disjunction(
-            RelationApplication(pointer_eq_symbol, (x, y)), # x = y
-            RelationApplication(in_lseg_symbol, (x, Application(next_symbol, (y,)), z)) # in_lseg(x, next(y), z)
-        ),
-    ),
-)
-
-list_defn = FixpointDefinition(
-    list_symbol,
-    (x,),
-    Disjunction(
-        RelationApplication(pointer_eq_symbol, (x, Application(nil_symbol, ()))), # x = nil
-        Conjunction(
-            RelationApplication(list_symbol, (Application(next_symbol, (x,)),)), # list(next(x))
-            Negation(RelationApplication(in_lseg_symbol, (x, Application(next_symbol, (x,)), Application(nil_symbol, ())))) # not in_lseg(x, n(x), nil)
-        ),
-    ),
-)
-
-lseg_defn = FixpointDefinition(
-    lseg_symbol,
-    (x, y),
-    Disjunction(
-        RelationApplication(pointer_eq_symbol, (x, y)), # x = y
-        Conjunction(
-            RelationApplication(lseg_symbol, (Application(next_symbol, (x,)), y)), # lseg(next(x), y)
-            Negation(RelationApplication(in_lseg_symbol, (x, Application(next_symbol, (x,)), y))), # not in_lseg(x, n(x), y)
-        ),
-    ),
-)
-
-theory = Theory(expanded_language, (in_lseg_defn, list_defn, lseg_defn))
 
 # free variables are universally quantified
 template = Implication(

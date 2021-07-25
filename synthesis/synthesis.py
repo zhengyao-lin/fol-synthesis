@@ -571,9 +571,9 @@ class CEIGSynthesizer:
 
     def synthesize_for_model_classes(
         self,
-        templates: Tuple[Formula, ...], # templates to synthesize (we will try each one in sequence)
-        trivial_model: ModelVariable,   # describing the class of models in which we do not want the formula to be always valid
-        goal_model: ModelVariable,      # describing the class of models in which we want the formula to be valid
+        templates: Tuple[Formula, ...],
+        trivial_model: ModelVariable,
+        goal_model: ModelVariable,
         *_,
         solver_name: str = "z3",
     ) -> Generator[Formula, None, None]:
@@ -605,7 +605,7 @@ class CEIGSynthesizer:
             check_solver.add_assertion(goal_model.get_constraint())
 
             for template in templates:
-                print(f"synthesizing formulas with the form {template}")
+                print(f"### synthesizing formulas of the form {template}")
 
                 with self.solver_push(gen_solver):
                     gen_solver.add_assertion(template.get_constraint())

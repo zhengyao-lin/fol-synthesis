@@ -60,7 +60,7 @@ template = Implication(
 trivial_model = FOProvableModelVariable(theory, unfold_depth=2)
 goal_model = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 
-for _ in CEIGSynthesizer().synthesize_for_model_classes(
+for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaVariable(language, (x, y, z), 0),

@@ -70,7 +70,7 @@ x = Variable("x", sort_pointer)
 trivial_model = FOProvableModelVariable(theory, unfold_depth=2)
 goal_model = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 5 })
 
-for _ in CEIGSynthesizer().synthesize_for_model_classes(
+for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
         # first synthesize R(...) -> S(...)
         # then synthesize R1(...) /\ R2(...) -> S(...)

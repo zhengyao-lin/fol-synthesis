@@ -555,7 +555,7 @@ class FOProvableModelVariable(UninterpretedModelVariable):
         return interp
 
 
-class CEIGSynthesizer:
+class CEGISynthesizer:
     """
     Synthesize formulas that are valid in some class of models
     but not always true in some other class

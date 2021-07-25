@@ -64,7 +64,7 @@ trivial_model = FiniteLFPModelVariable(group_theory, size_bounds={ sort_group: 8
 # goal_model = FOProvableModelVariable(theory, 0)
 goal_model = FiniteLFPModelVariable(ab_group_theory, size_bounds={ sort_group: 8 })
 
-for _ in CEIGSynthesizer().synthesize_for_model_classes(
+for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
         AtomicFormulaVariable(group_language, (x, y), 1),
         AtomicFormulaVariable(group_language, (x, y), 2),

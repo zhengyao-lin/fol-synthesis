@@ -1,7 +1,8 @@
-from typing import Any, Generic, TypeVar, Tuple, Mapping, Dict, Generator
+from typing import Any, Generic, TypeVar, Tuple, Mapping, Dict, Generator, List
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 
 import itertools
 
@@ -180,6 +181,9 @@ class AtomicFormulaVariable(Formula):
 
         self.subterms = tuple(TermVariable(language, free_vars, term_depth) for _ in range(language.get_max_relation_arity()))
 
+    def __str__(self) -> str:
+        return f"<φ({', '.join(map(str, self.free_vars))}), depth {self.term_depth}>"
+
     def get_free_variables(self) -> Set[Variable]:
         return set(self.free_vars)
 
@@ -276,24 +280,86 @@ class AtomicFormulaVariable(Formula):
         return interp
 
 
-class ModelVariable(Template[Structure], Structure): ...
-
-
-class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
+class ModelVariable(Template[Structure], Structure):
     """
-    A variable/template for a finite LFP model of a given theory
+    A model variable can act as a structure, i.e. a formula can be
+    interpreted in it, but at the same time it can be used as
+    a template to synthesize an actual concrete model
     """
 
-    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
-        self.theory = theory
 
-        carriers: Dict[Sort, FiniteCarrierSet] = {}
+class UninterpretedModelVariable(SymbolicStructure, ModelVariable):
+    """
+    A structure in which all uninterpreted sorts are assigned
+    the carrier <default_sort> and all uninterpreted functions/relations
+    are assigned uninterpreted SMT functions
+    """
+
+    def __init__(self, language: Language, default_sort: smt.SMTSort):
+        carriers: Dict[Sort, CarrierSet] = {}
         function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = {}
         relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = {}
 
+        for sort in language.sorts:
+            if sort.smt_hook is None:
+                carriers[sort] = RefinementCarrierSet(default_sort)
+
+        for function_symbol in language.function_symbols:
+            if function_symbol.smt_hook is None:
+                smt_input_sorts = tuple(sort.smt_hook or default_sort for sort in function_symbol.input_sorts)
+                smt_output_sort = function_symbol.output_sort.smt_hook or default_sort
+                function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
+
+        for relation_symbol in language.relation_symbols:
+            if relation_symbol.smt_hook is None:
+                smt_input_sorts = tuple(sort.smt_hook or default_sort for sort in relation_symbol.input_sorts)
+                relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
+
+        super().__init__(language, carriers, function_interpretations, relation_interpretations)
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.TRUE()
+
+    def get_from_smt_model(self, model: smt.SMTModel) -> Structure:
+        """
+        Concretize all functions
+        """
+        concrete_functions = {}
+        concrete_relations = {}
+
+        # construct new function interpretations
+        for function_symbol in self.theory.language.function_symbols:
+            if function_symbol.smt_hook is None:
+                concrete_functions[function_symbol] = \
+                    (lambda symbol: lambda *args: \
+                        model.get_value(self.interpret_function(symbol, *args), model_completion=False))(function_symbol)
+
+        # construct new relation interpretations
+        for relation_symbol in self.theory.language.relation_symbols:
+            if relation_symbol.smt_hook is None:
+                concrete_relations[relation_symbol] = \
+                    (lambda symbol: lambda *args: \
+                        model.get_value(self.interpret_relation(symbol, *args), model_completion=False))(relation_symbol)
+
+        return SymbolicStructure(self.theory.language, self.carriers, concrete_functions, concrete_relations)
+
+    def equals(self, value: Structure) -> smt.SMTTerm:
+        raise NotImplementedError()
+
+
+class FiniteLFPModelVariable(UninterpretedModelVariable):
+    """
+    A variable/template for a LFP model of a given theory
+    in which all interpreted sorts have finite domains
+    """
+
+    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
+        super().__init__(theory.language, smt.INT)
+
+        self.theory = theory
         self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = {}
 
-        # initialize all carrier sets
+        # set all carrier sets to finite sets
         for sort in theory.language.sorts:
             if sort.smt_hook is None:
                 assert sort in size_bounds, \
@@ -302,20 +368,7 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
                     smt.INT,
                     tuple(smt.FreshSymbol(smt.INT) for _ in range(size_bounds[sort]))
                 )
-                carriers[sort] = carrier
-
-        # initialize uninterpreted functions for function symbols
-        for function_symbol in theory.language.function_symbols:
-            if function_symbol.smt_hook is None:
-                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in function_symbol.input_sorts)
-                smt_output_sort = function_symbol.output_sort.smt_hook or smt.INT
-                function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
-
-        # initialize uninterpreted functions for relation symbols
-        for relation_symbol in theory.language.relation_symbols:
-            if relation_symbol.smt_hook is None:
-                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
-                relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
+                self.carriers[sort] = carrier
 
         # for any fixpoint definition, add a rank function
         for sentence in theory.sentences:
@@ -325,8 +378,6 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
                        f"duplicate fixpoint definition for {relation_symbol}"
                 smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
                 self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
-
-        super().__init__(theory.language, carriers, function_interpretations, relation_interpretations)
 
     def get_constraint(self) -> smt.SMTTerm:
         """
@@ -417,8 +468,11 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
 
     def get_from_smt_model(self, model: smt.SMTModel) -> Structure:
         """
-        Concretize a structure
+        Get a concrete finite structure
         """
+
+        uninterp_structure = super().get_from_smt_model(model)
+
         concrete_carriers = {}
         concrete_functions = {}
         concrete_relations = {}
@@ -439,52 +493,19 @@ class FiniteLFPModelVariable(SymbolicStructure, ModelVariable):
             if function_symbol.smt_hook is None:
                 concrete_functions[function_symbol] = \
                     (lambda symbol: lambda *args: \
-                        model.get_value(self.interpret_function(symbol, *args), model_completion=False))(function_symbol)
+                        uninterp_structure.interpret_function(symbol, *args))(function_symbol)
 
         # construct new relation interpretations
         for relation_symbol in self.theory.language.relation_symbols:
             if relation_symbol.smt_hook is None:
                 concrete_relations[relation_symbol] = \
                     (lambda symbol: lambda *args: \
-                        model.get_value(self.interpret_relation(symbol, *args), model_completion=False))(relation_symbol)
+                        uninterp_structure.interpret_relation(symbol, *args))(relation_symbol)
 
         return SymbolicStructure(self.theory.language, concrete_carriers, concrete_functions, concrete_relations)
 
-    def equals(self, value: Structure) -> smt.SMTTerm:
-        raise NotImplementedError()
 
-
-class UninterpretedStructure(SymbolicStructure):
-    """
-    A structure in which all uninterpreted sorts are assigned
-    the carrier INT and all uninterpreted functions/relations
-    are assigned uninterpreted SMT functions
-    """
-
-    def __init__(self, language: Language):
-        carriers: Dict[Sort, CarrierSet] = {}
-        function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = {}
-        relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = {}
-
-        for sort in language.sorts:
-            if sort.smt_hook is None:
-                carriers[sort] = RefinementCarrierSet(smt.INT)
-
-        for function_symbol in language.function_symbols:
-            if function_symbol.smt_hook is None:
-                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in function_symbol.input_sorts)
-                smt_output_sort = function_symbol.output_sort.smt_hook or smt.INT
-                function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
-
-        for relation_symbol in language.relation_symbols:
-            if relation_symbol.smt_hook is None:
-                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
-                relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
-
-        super().__init__(language, carriers, function_interpretations, relation_interpretations)
-
-
-class FOProvableStructure(UninterpretedStructure):
+class FOProvableModelVariable(UninterpretedModelVariable):
     """
     A structure such that in a theory with fixpoint definitions,
     if a formula phi is FO-provable with <unfold_depth> unfoldings of the
@@ -492,11 +513,12 @@ class FOProvableStructure(UninterpretedStructure):
     """
 
     def __init__(self, theory: Theory, unfold_depth: int):
-        super().__init__(theory.language)
+        super().__init__(theory.language, smt.INT)
 
-        overrides = {}
+        self.theory = theory
 
         # unfold LFP definitions
+        overrides = {}
         for sentence in theory.sentences:
             if isinstance(sentence, FixpointDefinition):
                 unfolded_definition = sentence.unfold_definition(unfold_depth)
@@ -504,6 +526,16 @@ class FOProvableStructure(UninterpretedStructure):
                     self.interpret_fixpoint_definition(unfolded_definition)
 
         self.relation_interpretations.update(overrides)
+
+    def get_constraint(self) -> smt.SMTTerm:
+        # NOTE: fixpoint axioms are not included here
+
+        constraint = smt.TRUE()
+        for sentence in self.theory.sentences:
+            if isinstance(sentence, Axiom):
+                constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
+        
+        return constraint
 
     def interpret_fixpoint_definition(self, definition: FixpointDefinition) -> smt.SMTFunction:
         """
@@ -525,127 +557,99 @@ class FOProvableStructure(UninterpretedStructure):
 
 class CEIGSynthesizer:
     """
-    Synthesize formulas that are (approximately) LFP-valid in a given theory
-    but not FO-provable under some unfolding depth
+    Synthesize formulas that are valid in some class of models
+    but not always true in some other class
     """
 
-    def __init__(
-        self,
-        theory: Theory,
-        template: Formula,
-        counterexample_var: ModelVariable,
-        fo_provable_depth: int,
-    ):
-        """
-        <theory> is the theory in which the synthesized formulas should hold
-        <template> is the template for the formula to be synthesized
-        <model_var> is the template for a counterexample model
-        <fo_provable_depth> indicates that the synthesized formula should not be FO-provable at that unfolding depth
-        """
+    @contextmanager
+    def solver_push(self, solver: smt.SMTSolver) -> Generator[None, None, None]:
+        try:
+            solver.push()
+            yield
+        finally:
+            solver.pop()
 
-        self.theory = theory
-        self.template = template
-        self.counterexample_var = counterexample_var
-        self.fo_provable_structure = FOProvableStructure(theory, fo_provable_depth)
-        self.uninterp_structure = UninterpretedStructure(theory.language)
-
-    def synthesize(
+    def synthesize_for_model_classes(
         self,
+        templates: Tuple[Formula, ...], # templates to synthesize (we will try each one in sequence)
+        trivial_model: ModelVariable,   # describing the class of models in which we do not want the formula to be always valid
+        goal_model: ModelVariable,      # describing the class of models in which we want the formula to be valid
+        *_,
         solver_name: str = "z3",
-        logic: Optional[str] = None,
-        include_fo_provable: bool = False,
-        include_trivial: bool = False, # trivial means true in any structure (without the axioms)
-        remove_fo_duplicate: bool = False, # remove duplicated formulas using fo reasoning
     ) -> Generator[Formula, None, None]:
-        free_vars = self.template.get_free_variables()
+        """
+        Given a class of models C_1 (described by <trivial_model>)
+        and another class of models C_2 (described by <goal_model>)
+        Synthesize all formula phi (using each template in <templates> in sequence)
+        such that
+          - exists M in C_1, not (M |= phi)
+          - forall M in C_2, M |= phi
 
-        all_true_candidates = []
+        If the second condition is not true, the counterexample model M is
+        added back to the first round as an additional constraint
 
-        with smt.Solver(name=solver_name, logic=logic) as gen_solver, smt.Solver(name=solver_name, logic=logic) as check_solver:
-            # gen_solver is used to generate candidates
-            # check_solver is used to generate counterexamples
+        e.g. to synthesize formulas true in all bounded finite LFP models but not in all FO model,
+        we can take C_1 to be FOProvableStructure and C_2 to be FiniteLFPModelVariable
 
-            # load templates to solvers
-            gen_solver.add_assertion(self.template.get_constraint())
-            check_solver.add_assertion(self.counterexample_var.get_constraint())
+        e.g. to synthesize formulas true in a FO theory T but not in a FO subtheory T'
+        we can take C_1 to be FOProvableStructure(T') and C_2 to be FOProvableStructure(T)
+        """
 
-            # when negated, the (universally quantified) free variables
-            # become existentially quantified, we do skolemization here
-            uninterp_skolem_constants = { # for the uninterp structure
-                v: self.uninterp_structure.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
-                for v in free_vars
-            }
-            gen_skolem_constants = { # for the fo provable structure
-                v: self.fo_provable_structure.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
-                for v in free_vars
-            }
-            check_skolem_constants = { # for the counterexample
-                v: self.counterexample_var.interpret_sort(v.sort).get_fresh_constant(check_solver, v.sort)
-                for v in free_vars
-            }
+        counterexamples: List[Structure] = []
+        synthesized_formulas: List[Formula] = []
+        
+        with smt.Solver(name=solver_name) as gen_solver, \
+             smt.Solver(name=solver_name) as check_solver: # to check that the synthesized formulas are valid
 
-            # add all non-fixpoint-definition axioms
-            for sentence in self.theory.sentences:
-                if isinstance(sentence, Axiom):
-                    gen_solver.add_assertion(self.template.interpret(self.fo_provable_structure, gen_skolem_constants))
+            gen_solver.add_assertion(trivial_model.get_constraint())
+            check_solver.add_assertion(goal_model.get_constraint())
 
-            if not include_trivial:
-                gen_solver.add_assertion(smt.Not(self.template.interpret(self.uninterp_structure, uninterp_skolem_constants)))
+            for template in templates:
+                print(f"synthesizing formulas with the form {template}")
 
-            # the formula should not be FO provable
-            if not include_fo_provable:
-                gen_solver.add_assertion(smt.Not(self.template.interpret(self.fo_provable_structure, gen_skolem_constants)))
+                with self.solver_push(gen_solver):
+                    gen_solver.add_assertion(template.get_constraint())
 
-            while gen_solver.solve():
-                # get a candidate from the SMT model
-                candidate = self.template.get_from_smt_model(gen_solver.get_model())
-                print(candidate, "... ", end="", flush=True)
+                    # add all existing counterexamples
+                    for counterexample in counterexamples:
+                        gen_solver.add_assertion(template.quantify_all_free_variables().interpret(counterexample, {}))
 
-                # try to find a finite counterexample
-                check_solver.push()
-                check_solver.add_assertion(smt.Not(candidate.interpret(self.counterexample_var, check_skolem_constants)))
+                    # avoid duplicates for all existing formulas
+                    for formula in synthesized_formulas:
+                        gen_solver.add_assertion(formula.quantify_all_free_variables().interpret(trivial_model, {}))
 
-                if check_solver.solve():
-                    # a concrete counterexample
-                    counterexample = self.counterexample_var.get_from_smt_model(check_solver.get_model())
-                    check_solver.pop()
+                    # when negated, the (universally quantified) free variables
+                    # become existentially quantified, we do skolemization here
+                    free_vars = template.get_free_variables()
+                    gen_skolem_constants = { # for the fo provable structure
+                        v: trivial_model.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
+                        for v in free_vars
+                    }
+                    check_skolem_constants = { # for the counterexample
+                        v: goal_model.interpret_sort(v.sort).get_fresh_constant(check_solver, v.sort)
+                        for v in free_vars
+                    }
 
-                    # add the new counterexample
-                    print("✘")
-                    gen_solver.add_assertion(
-                        self.template.quantify_all_free_variables().interpret(counterexample, {}),
-                    )
-                else:
-                    check_solver.pop()
-                    # no counterexample found, maybe this is true
-                    print("✓")
+                    # not valid in some trivial model
+                    gen_solver.add_assertion(smt.Not(template.interpret(trivial_model, gen_skolem_constants)))
 
-                    all_true_candidates.append(candidate)
+                    while gen_solver.solve():
+                        candidate = template.get_from_smt_model(gen_solver.get_model())
+                        print(candidate, "... ", end="", flush=True)
 
-                    # output the candidate
-                    yield candidate
+                        # check if the candidate is valid in all goal models
+                        with self.solver_push(check_solver):
+                            check_solver.add_assertion(smt.Not(candidate.interpret(goal_model, check_skolem_constants)))
 
-                    # add duplication-avoidance constraint
-                    if remove_fo_duplicate:
-                        if include_fo_provable:
-                            gen_solver.add_assertion(smt.Not(
-                                smt.Implies(
-                                    smt.And(*(
-                                        old_candidate.quantify_all_free_variables().interpret(self.fo_provable_structure, {})
-                                        for old_candidate in all_true_candidates
-                                    )),
-                                    self.template.quantify_all_free_variables().interpret(self.fo_provable_structure, {}),
-                                )
-                            ))
-                        else:
-                            gen_solver.add_assertion(
-                                candidate.quantify_all_free_variables().interpret(self.fo_provable_structure, {}),
-                            )
-                    else:
-                        # use a weaker version that does not require quantifiers
-                        for assignment in itertools.permutations(gen_skolem_constants.values()):
-                            permuted_skolem_constants = dict(zip(free_vars, assignment))
-                            gen_solver.add_assertion(candidate.interpret(self.fo_provable_structure, permuted_skolem_constants))
-
-                    if include_fo_provable:
-                        gen_solver.add_assertion(smt.Not(self.template.equals(candidate)))
+                            if check_solver.solve():
+                                # found counterexample
+                                print("✘")
+                                counterexample = goal_model.get_from_smt_model(check_solver.get_model())
+                                counterexamples.append(counterexample)
+                                gen_solver.add_assertion(template.quantify_all_free_variables().interpret(counterexample, {}))
+                            else:
+                                # no conuterexample found
+                                print("✓")
+                                yield candidate
+                                synthesized_formulas.append(candidate)
+                                gen_solver.add_assertion(candidate.quantify_all_free_variables().interpret(trivial_model, {}))

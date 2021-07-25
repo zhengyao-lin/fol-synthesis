@@ -57,7 +57,23 @@ template = Implication(
     AtomicFormulaVariable(language, (x, y, z), 0),
 )
 
-model_var = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
+trivial_model = FOProvableModelVariable(theory, unfold_depth=2)
+goal_model = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 
-for formula in CEIGSynthesizer(theory, template, model_var, 2).synthesize(): ...
-    # print("### found", formula)
+for _ in CEIGSynthesizer().synthesize_for_model_classes(
+    (
+        Implication(
+            AtomicFormulaVariable(language, (x, y, z), 0),
+            AtomicFormulaVariable(language, (x, y, z), 0),
+        ),
+        Implication(
+            Conjunction(
+                AtomicFormulaVariable(language, (x, y, z), 0),
+                AtomicFormulaVariable(language, (x, y, z), 0),
+            ),
+            AtomicFormulaVariable(language, (x, y, z), 0),
+        ),
+    ),
+    trivial_model,
+    goal_model,
+): ...

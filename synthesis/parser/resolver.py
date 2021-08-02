@@ -386,9 +386,21 @@ class Resolver:
         return Theory(language, tuple(other_sentences))
 
     @staticmethod
-    def resolve(theory: UnresolvedTheory) -> Theory:
+    def resolve_theory(theory: UnresolvedTheory) -> Theory:
         resolved = Resolver.resolve_language(theory)
         resolved = SymbolResolver(resolved.language).visit(resolved)
         resolved = VariableSortResolver(resolved.language).visit(resolved)
         # TODO: do a final sort check
+        return resolved
+
+    @staticmethod
+    def resolve_term(language: Language, term: Term) -> Term:
+        resolved = SymbolResolver(language).visit(term)
+        resolved = VariableSortResolver(language).visit(resolved)
+        return resolved
+
+    @staticmethod
+    def resolve_formula(language: Language, formula: Formula) -> Formula:
+        resolved = SymbolResolver(language).visit(formula)
+        resolved = VariableSortResolver(language).visit(resolved)
         return resolved

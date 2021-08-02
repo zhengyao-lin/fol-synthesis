@@ -29,10 +29,14 @@ class Term(BaseAST, Template["Term"], ABC):
     def equals(self, value: Term) -> smt.SMTTerm:
         raise NotImplementedError()
 
+    def get_sort(self) -> Sort:
+        raise NotImplementedError()
+
 
 class Formula(BaseAST, Template["Formula"], ABC):
     @abstractmethod
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula: ...
+    # TODO: not capture free
 
     @abstractmethod
     def get_free_variables(self) -> Set[Variable]: ...
@@ -51,6 +55,9 @@ class Formula(BaseAST, Template["Formula"], ABC):
             formula = UniversalQuantification(var, formula)
 
         return formula
+
+    def __hash__(self) -> int:
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,9 @@ class Variable(Term):
     def equals(self, value: Term) -> smt.SMTTerm:
         assert self == value
         return smt.TRUE()
+
+    def get_sort(self) -> Sort:
+        return self.sort
 
 
 @dataclass(frozen=True)
@@ -119,6 +129,15 @@ class Application(Term):
     def equals(self, value: Term) -> smt.SMTTerm:
         assert isinstance(value, Application)
         return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
+
+    def get_sort(self) -> Sort:
+        assert len(self.arguments) == len(self.function_symbol.input_sorts), \
+               f"ill-formed term {self}"
+        for argument, sort in zip(self.arguments, self.function_symbol.input_sorts):
+            assert argument.get_sort() == sort, \
+                   f"ill-sorted term {self}"
+
+        return self.function_symbol.output_sort
 
 
 @dataclass

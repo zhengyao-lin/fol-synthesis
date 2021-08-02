@@ -53,7 +53,7 @@ class ASTTransformer(Transformer[BaseAST]):
         formula, = args
         return Axiom(formula)
 
-    def fol_terms(self, args: List[Term]) -> Tuple[Term, ...]:
+    def terms(self, args: List[Term]) -> Tuple[Term, ...]:
         return tuple(args)
 
     def variable(self, args: List[str]) -> UnresolvedVariable:
@@ -79,32 +79,32 @@ class ASTTransformer(Transformer[BaseAST]):
         name, arguments = args
         return UnresolvedRelationApplication(name, tuple(arguments))
 
-    def fol_negation(self, args: List[Formula]) -> Negation:
+    def negation(self, args: List[Formula]) -> Negation:
         _, formula = args
         return Negation(formula)
 
-    def fol_conjunction(self, args: List[Formula]) -> Formula:
+    def conjunction(self, args: List[Formula]) -> Formula:
         assert len(args) != 0
         formula = args[0]
         for conjunct in args[1:]:
             formula = Conjunction(formula, conjunct)
         return formula
 
-    def fol_disjunction(self, args: List[Formula]) -> Formula:
+    def disjunction(self, args: List[Formula]) -> Formula:
         assert len(args) != 0
         formula = args[0]
         for disjunct in args[1:]:
             formula = Disjunction(formula, disjunct)
         return formula
 
-    def fol_implication(self, args: List[Formula]) -> Formula:
+    def implication(self, args: List[Formula]) -> Formula:
         assert len(args) != 0
         formula = args[-1]
         for implicant in args[:-1][::-1]:
             formula = Implication(implicant, formula)
         return formula
 
-    def fol_equivalence(self, args: List[Formula]) -> Formula:
+    def equivalence(self, args: List[Formula]) -> Formula:
         if len(args) == 1: return args[0]
         left, right = args
         return Equivalence(left, right)
@@ -161,45 +161,45 @@ class Parser:
                 | "function" identifier ":" identifier+ "->" identifier attributes         -> function_definition
                 | "constant" identifier ":" identifier attributes                          -> constant_definition
                 | "relation" identifier ":" identifier* attributes                         -> relation_definition
-                | "fixpoint" identifier "(" [variable ("," variable)*] ")" "=" fol_formula -> fixpoint_definition
-                | "axiom" fol_formula                                                      -> axiom
+                | "fixpoint" identifier "(" [variable ("," variable)*] ")" "=" formula     -> fixpoint_definition
+                | "axiom" formula                                                          -> axiom
 
-        fol_terms: [fol_term ("," fol_term)*]
+        terms: [term ("," term)*]
 
         variable: identifier [":" identifier]
         quantified_variable: identifier ":" identifier -> variable
 
-        ?fol_term: variable
-                 | identifier "(" fol_terms ")" -> function_application
+        ?term: variable
+             | identifier "(" terms ")" -> function_application
 
-        // '?' here means that if the production only has one non-terminal e.g. fol_negation -> fol_atomic
-        // the transformer of 'fol_atomic' will be called instead of 'fol_negation'
+        // '?' here means that if the production only has one non-terminal e.g. negation -> atomic
+        // the transformer of 'atomic' will be called instead of 'negation'
 
-        fol_atomic: TRUE                         -> verum
-                  | FALSE                        -> falsum
-                  // | fol_term "=" fol_term     -> equality
-                  | "(" fol_formula ")"          -> paren_formula
-                  | identifier "(" fol_terms ")" -> relation_application
+        atomic: TRUE                         -> verum
+              | FALSE                        -> falsum
+              // | term "=" term     -> equality
+              | "(" formula ")"          -> paren_formula
+              | identifier "(" terms ")" -> relation_application
 
-        ?fol_negation: fol_atomic | NEGATION fol_atomic
-        ?fol_negation_quant: fol_quantification | NEGATION fol_quantification -> fol_negation
+        ?negation: atomic | NEGATION atomic
+        ?negation_quant: quantification | NEGATION quantification -> negation
 
-        ?fol_conjunction: fol_negation ("/\\" fol_negation)*
-        ?fol_conjunction_quant: [fol_negation ("/\\" fol_negation)* "/\\"] fol_negation_quant -> fol_conjunction
+        ?conjunction: negation ("/\\" negation)*
+        ?conjunction_quant: [negation ("/\\" negation)* "/\\"] negation_quant -> conjunction
 
-        ?fol_disjunction: fol_conjunction ("\\/" fol_conjunction)*
-        ?fol_disjunction_quant: [fol_conjunction ("\\/" fol_conjunction)* "\\/"] fol_conjunction_quant -> fol_disjunction
+        ?disjunction: conjunction ("\\/" conjunction)*
+        ?disjunction_quant: [conjunction ("\\/" conjunction)* "\\/"] conjunction_quant -> disjunction
 
-        ?fol_implication: fol_disjunction ("->" fol_disjunction)*
-        ?fol_implication_quant: [fol_disjunction ("->" fol_disjunction)* "->"] fol_disjunction_quant -> fol_implication
+        ?implication: disjunction ("->" disjunction)*
+        ?implication_quant: [disjunction ("->" disjunction)* "->"] disjunction_quant -> implication
 
-        ?fol_equivalence: [fol_implication "<->"] fol_implication
-                        | [fol_implication "<->"] fol_implication_quant -> fol_equivalence
+        ?equivalence: [implication "<->"] implication
+                    | [implication "<->"] implication_quant -> equivalence
 
-        ?fol_formula: fol_equivalence
+        ?formula: equivalence
 
-        fol_quantification: FORALL quantified_variable ["," quantified_variable]+ "." fol_formula -> universal_quantification
-                          | EXISTS quantified_variable ["," quantified_variable]+ "." fol_formula -> existential_quantification
+        quantification: FORALL quantified_variable ["," quantified_variable]+ "." formula -> universal_quantification
+                      | EXISTS quantified_variable ["," quantified_variable]+ "." formula -> existential_quantification
     """
 
     THEORY_PARSER = Lark(
@@ -210,9 +210,39 @@ class Parser:
         propagate_positions=True,
     )
 
+    TERM_PARSER = Lark(
+        SYNTAX,
+        start="term",
+        parser="lalr",
+        lexer="standard",
+        propagate_positions=True,
+    )
+
+    FORMULA_PARSER = Lark(
+        SYNTAX,
+        start="formula",
+        parser="lalr",
+        lexer="standard",
+        propagate_positions=True,
+    )
+
     @staticmethod
     def parse_theory(src: str) -> Theory:
         ast = Parser.THEORY_PARSER.parse(src)
         theory = ASTTransformer().transform(ast)
         assert isinstance(theory, UnresolvedTheory)
-        return Resolver.resolve(theory)
+        return Resolver.resolve_theory(theory)
+
+    @staticmethod
+    def parse_term(language: Language, src: str) -> Term:
+        ast = Parser.TERM_PARSER.parse(src)
+        term = ASTTransformer().transform(ast)
+        assert isinstance(term, Term)
+        return Resolver.resolve_term(language, term)
+
+    @staticmethod
+    def parse_formula(language: Language, src: str) -> Formula:
+        ast = Parser.FORMULA_PARSER.parse(src)
+        formula = ASTTransformer().transform(ast)
+        assert isinstance(formula, Formula)
+        return Resolver.resolve_term(language, formula)

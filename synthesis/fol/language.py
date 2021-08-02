@@ -29,12 +29,26 @@ class FunctionSymbol(BaseAST):
     name: str
     smt_hook: Optional[smt.SMTFunction] = None # if set, the function is interpreted as an SMT function
 
+    def __str__(self) -> str:
+        if len(self.input_sorts) == 0:
+            return f"{self.name}: -> {self.output_sort}"
+
+        input_sort_string = " ".join(map(str, self.input_sorts))
+        return f"{self.name}: {input_sort_string} -> {self.output_sort}"
+
 
 @dataclass(frozen=True)
 class RelationSymbol(BaseAST):
     input_sorts: Tuple[Sort, ...]
     name: str
     smt_hook: Optional[smt.SMTFunction] = None # if set, the function is interpreted as an SMT function
+
+    def __str__(self) -> str:
+        if len(self.input_sorts) == 0:
+            return f"{self.name}:"
+
+        input_sort_string = " ".join(map(str, self.input_sorts))
+        return f"{self.name}: {input_sort_string}"
 
 
 @dataclass(frozen=True)
@@ -45,6 +59,12 @@ class Language:
     sorts: Tuple[Sort, ...]
     function_symbols: Tuple[FunctionSymbol, ...]
     relation_symbols: Tuple[RelationSymbol, ...]
+
+    def __str__(self) -> str:
+        sort_string = ", ".join(map(str, self.sorts))
+        function_symbol_string = ", ".join(map(str, self.function_symbols))
+        relation_symbol_string = ", ".join(map(str, self.relation_symbols))
+        return f"({sort_string}; {function_symbol_string}; {relation_symbol_string})"
 
     # TODO: add dict for sorts/functions/relations
 
@@ -62,6 +82,24 @@ class Language:
             tuple(function_symbol for function_symbol in self.function_symbols if function_symbol.name in function_name_set),
             tuple(relation_symbol for relation_symbol in self.relation_symbols if relation_symbol.name in relation_name_set),
         )
+
+    def get_fresh_function_name(self, prefix: str) -> str:
+        """
+        Get a fresh function name in the form of <prefix><index>
+        where index is the smallest integer such that
+        <prefix><index> is not an existing function name
+        """
+        
+        function_names = set(symbol.name for symbol in self.function_symbols)
+        index = 0
+
+        while True:
+            name = f"{prefix}{index}"
+            if name not in function_names:
+                return name
+            index += 1
+
+        assert False
 
     def get_sort(self, name: str) -> Optional[Sort]:
         for sort in self.sorts:
@@ -101,4 +139,12 @@ class Language:
             self.sorts + other.sorts,
             self.function_symbols + other.function_symbols,
             self.relation_symbols + other.relation_symbols,
+        )
+
+    def expand_with_function(self, symbol: FunctionSymbol) -> Language:
+        # TODO: check conflicts
+        return Language(
+            self.sorts,
+            self.function_symbols + (symbol,),
+            self.relation_symbols,
         )

@@ -7,7 +7,7 @@ import itertools
 
 from .language import Language, Sort
 from .syntax import *
-from .theory import Theory
+from .theory import Theory, Axiom, FixpointDefinition
 
 
 class QuantifierKind(Enum):
@@ -86,62 +86,6 @@ class NaturalProof:
             lambda term: NaturalProof.get_all_ground_terms_in_term(sort, term),
             NaturalProof.get_all_terms(formula),
         ), ())
-
-    @staticmethod
-    def term_instantiate(
-        language: Language,
-        foreground_sort: Sort,
-        depth: int,
-        formulas: Tuple[Formula, ...],
-    ) -> Set[Formula]:
-        """
-        Do term instantiation up to depth <depth> and returns the list of (quantifier free) concrete formulas
-
-        <formulas> should be quantifier free and
-        all of their free variables (which should be of the foreground sort) are universally quantified
-        """
-
-        assert foreground_sort.smt_hook is None
-
-        ground_terms = set()
-        instantiated_formulas = set()
-
-        for formula in formulas:
-            ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, formula))
-
-        if len(ground_terms) == 0:
-            # try to find ground terms in the language
-            for function_symbol in language.function_symbols:
-                if function_symbol.output_sort == foreground_sort and \
-                   len(function_symbol.input_sorts) == 0:
-                    ground_terms.add(Application(function_symbol, ()))
-
-        assert len(ground_terms) != 0, \
-               f"the given language does not have a ground term of sort {foreground_sort}"
-
-        assert depth >= 0, f"invalid depth {depth}"
-
-        for _ in range(depth + 1): # TODO: need to align with the depth in the paper
-            previous_size = len(instantiated_formulas)
-
-            # use previous ground terms to instantiate new formulas
-            for formula in formulas:
-                free_vars = tuple(formula.get_free_variables())
-                ordered_ground_terms = tuple(ground_terms)
-
-                for assignment in itertools.permutations(ordered_ground_terms, len(free_vars)):
-                    substitution = dict(zip(free_vars, assignment))
-                    instantiated_formula = formula.substitute(substitution)
-                    instantiated_formulas.add(instantiated_formula)
-
-                    # add new ground terms
-                    ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, instantiated_formula))
-
-            # already converged
-            if len(instantiated_formulas) == previous_size:
-                return instantiated_formulas
-
-        return instantiated_formulas
 
     @staticmethod
     def flip_quantifier_list(quants: QuantifierList) -> QuantifierList:
@@ -246,7 +190,7 @@ class NaturalProof:
 
         elif isinstance(formula, Negation):
             quants, prenex = NaturalProof.prenex_normalize(formula.formula, var_index, var_prefix)
-            return NaturalProof.flip_quantifier_list(quants), prenex
+            return NaturalProof.flip_quantifier_list(quants), Negation(prenex)
 
         elif isinstance(formula, Implication):
             left_quants, left_prenex = NaturalProof.prenex_normalize(formula.left, var_index, var_prefix)
@@ -281,21 +225,130 @@ class NaturalProof:
         Normalize the given formula in prenex form
         then do skolemization for all existentially quantified variables
 
+        The returned formula is the quantifier-free body of the final universal formula
+
         The language might be expanded to include additional function symbols
         """
 
+        quants, prenex = NaturalProof.prenex_normalize(formula)
+        universal_variables = []
+
+        for var, kind in quants:
+            if kind == QuantifierKind.UNIVERSAL:
+                universal_variables.append(var)
+            else:
+                # add a skolem function
+                fresh_function_name = language.get_fresh_function_name("sk")
+                skolem_function_symbol = FunctionSymbol(
+                    tuple(universal_var.sort for universal_var in universal_variables),
+                    var.sort,
+                    fresh_function_name,
+                )
+                language = language.expand_with_function(skolem_function_symbol)
+
+                # replace occurrences of the variable with an application of the skolem function
+                prenex = prenex.substitute({ var: Application(skolem_function_symbol, tuple(universal_variables)) })
+
+        return language, prenex
+
     @staticmethod
-    def encode_validity(theory: Theory, foreground_sort: Sort, formula: Formula) -> Set[Formula]:
+    def term_instantiate(
+        language: Language,
+        foreground_sort: Sort,
+        formulas: Tuple[Formula, ...],
+        depth: int,
+    ) -> Set[Formula]:
         """
-        Reduce the validity of the formula in the given theory (i.e. whether theory |= formula)
-        to the unsatisfiability of the returned **disjunction** of quantifier free, concrete formulas.
+        Do term instantiation up to depth <depth> and returns the list of (quantifier free) concrete formulas
 
-        The given formula should be a closed, universal formula and
-        all quantifiers should be over the specified foreground sort.
-        
-        The given theory should only contain first order sentences (i.e. no fixpoint definitions).
-
-        All sentences in the theory should already be Skolemized to be universal sentences.
+        <formulas> should be quantifier free and
+        all of their free variables (which should be of the foreground sort) are universally quantified
         """
 
-        
+        assert foreground_sort.smt_hook is None
+
+        ground_terms = set()
+        instantiated_formulas = set()
+
+        for formula in formulas:
+            ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, formula))
+
+        if len(ground_terms) == 0:
+            # try to find ground terms in the language
+            for function_symbol in language.function_symbols:
+                if function_symbol.output_sort == foreground_sort and \
+                   len(function_symbol.input_sorts) == 0:
+                    ground_terms.add(Application(function_symbol, ()))
+
+        assert len(ground_terms) != 0, \
+               f"the given language does not have a ground term of sort {foreground_sort}"
+
+        assert depth >= 0, f"invalid depth {depth}"
+
+        for _ in range(depth): # TODO: need to align with the depth in the paper
+            previous_size = len(instantiated_formulas)
+
+            # use previous ground terms to instantiate new formulas
+            for formula in formulas:
+                free_vars = tuple(formula.get_free_variables())
+
+                for var in free_vars:
+                    assert var.sort == foreground_sort, f"quantified variable {var} is not of the foreground sort {foreground_sort}"
+
+                ordered_ground_terms = tuple(ground_terms)
+
+                for assignment in itertools.permutations(ordered_ground_terms, len(free_vars)):
+                    substitution = dict(zip(free_vars, assignment))
+                    instantiated_formula = formula.substitute(substitution)
+                    instantiated_formulas.add(instantiated_formula)
+
+                    # add new ground terms
+                    ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, instantiated_formula))
+
+            # already converged
+            if len(instantiated_formulas) == previous_size:
+                return instantiated_formulas
+
+        return instantiated_formulas
+
+    @staticmethod
+    def encode_validity(theory: Theory, foreground_sort: Sort, formula: Formula, depth: int) -> Tuple[Language, Set[Formula]]:
+        """
+        Reduce the FO-validity of the formula in the given theory (i.e. whether theory |= formula)
+        to the unsatisfiability of the returned conjunction of quantifier free, concrete formulas.
+
+        The given formula should be a closed formula
+
+        The possibly expended language is also returned
+        """
+
+        language = theory.language        
+        normalized_sentences = []
+
+        # collect all sentences in the theory
+        # fixpoint definitions are added as equivalence
+        for sentence in theory.sentences:
+            if isinstance(sentence, Axiom):
+                normalized_sentences.append(sentence.formula)
+
+            elif isinstance(sentence, FixpointDefinition):
+                normalized_sentences.append(sentence.as_formula())
+
+            else:
+                assert False, f"unsupported sentence {sentence}"
+
+        # skolemize all sentences in the theory
+        for i, sentence in enumerate(normalized_sentences):
+            language, skolemized = NaturalProof.skolemize(language, sentence)
+            normalized_sentences[i] = skolemized
+
+        # negate the goal formula and then skolemize it
+        negated_formula = Negation(formula).quantify_all_free_variables()
+        language, skolemized_negated_formula = NaturalProof.skolemize(language, negated_formula)
+
+        normalized_sentences.append(skolemized_negated_formula)
+
+        # theory |= formula
+        # iff theory /\ not formula is unsatisfiable
+
+        return language, NaturalProof.term_instantiate(language, foreground_sort, normalized_sentences, depth)

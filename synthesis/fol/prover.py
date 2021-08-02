@@ -290,10 +290,7 @@ class NaturalProof:
 
             # use previous ground terms to instantiate new formulas
             for formula in formulas:
-                free_vars = tuple(formula.get_free_variables())
-
-                for var in free_vars:
-                    assert var.sort == foreground_sort, f"quantified variable {var} is not of the foreground sort {foreground_sort}"
+                free_vars = tuple(var for var in formula.get_free_variables() if var.sort == foreground_sort)
 
                 ordered_ground_terms = tuple(ground_terms)
 

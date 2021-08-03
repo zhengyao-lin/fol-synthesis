@@ -80,8 +80,8 @@ language = theory.language.get_sublanguage(
 x = Variable("x", sort_pointer)
 y = Variable("y", sort_pointer)
 
-trivial_model = FOProvableModelVariable(theory, unfold_depth=2)
-goal_model = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
+trivial_model = FOProvableModelTemplate(theory, unfold_depth=2)
+goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 })
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (

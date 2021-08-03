@@ -34,7 +34,7 @@ def prove(goal_src: str, depth: int) -> None:
     # for conjunct in conjuncts:
     #     print(conjunct)
 
-    uninterp_structure = UninterpretedModelVariable(language, smt.INT)
+    uninterp_structure = UninterpretedModelTemplate(language, smt.INT)
 
     with smt.Solver(name="z3") as solver:
         solver.add_assertion(uninterp_structure.get_constraint())

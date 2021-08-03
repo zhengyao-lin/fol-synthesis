@@ -17,8 +17,6 @@ language = Language(
 free_vars = (Variable("x", sort_a), Variable("y", sort_b))
 
 def exhaust_variable(var: Template[Any]) -> None:
-    structure = UninterpretedModelVariable(language, smt.INT)
-
     with smt.Solver(name="z3") as solver:
         solver.add_assertion(var.get_constraint())
 

@@ -8,7 +8,7 @@ from fol.base.theory import *
 from .template import Template
 
 
-class ModelVariable(Template[Structure], Structure):
+class ModelTemplate(Template[Structure], Structure):
     """
     A model variable can act as a structure, i.e. a formula can be
     interpreted in it, but at the same time it can be used as
@@ -16,7 +16,7 @@ class ModelVariable(Template[Structure], Structure):
     """
 
 
-class UninterpretedModelVariable(SymbolicStructure, ModelVariable):
+class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
     """
     A structure in which all uninterpreted sorts are assigned
     the carrier <default_sort> and all uninterpreted functions/relations
@@ -75,7 +75,7 @@ class UninterpretedModelVariable(SymbolicStructure, ModelVariable):
         raise NotImplementedError()
 
 
-class FiniteLFPModelVariable(UninterpretedModelVariable):
+class FiniteLFPModelTemplate(UninterpretedModelTemplate):
     """
     A variable/template for a LFP model of a given theory
     in which all interpreted sorts have finite domains
@@ -233,7 +233,7 @@ class FiniteLFPModelVariable(UninterpretedModelVariable):
         return SymbolicStructure(self.theory.language, concrete_carriers, concrete_functions, concrete_relations)
 
 
-class FOProvableModelVariable(UninterpretedModelVariable):
+class FOProvableModelTemplate(UninterpretedModelTemplate):
     """
     A structure such that in a theory with fixpoint definitions,
     if a formula phi is FO-provable with <unfold_depth> unfoldings of the

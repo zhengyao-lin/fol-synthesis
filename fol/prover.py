@@ -5,9 +5,9 @@ from enum import Enum
 
 import itertools
 
-from .language import Language, Sort
-from .syntax import *
-from .theory import Theory, Axiom, FixpointDefinition
+from fol.base.language import Language, Sort
+from fol.base.syntax import *
+from fol.base.theory import Theory, Axiom, FixpointDefinition
 
 
 class QuantifierKind(Enum):
@@ -21,7 +21,7 @@ class QuantifierKind(Enum):
             return QuantifierKind.UNIVERSAL
 
 
-QuantifierList = Tuple[Tuple[QuantifierKind, Variable], ...]
+QuantifierList = Tuple[Tuple[Variable, QuantifierKind], ...]
 
 
 class NaturalProof:
@@ -267,8 +267,8 @@ class NaturalProof:
 
         assert foreground_sort.smt_hook is None
 
-        ground_terms = set()
-        instantiated_formulas = set()
+        ground_terms: Set[Term] = set()
+        instantiated_formulas: Set[Formula] = set()
 
         for formula in formulas:
             ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, formula))
@@ -320,32 +320,32 @@ class NaturalProof:
         """
 
         language = theory.language        
-        normalized_sentences = []
+        normalized_formulas = []
 
         # collect all sentences in the theory
         # fixpoint definitions are added as equivalence
         for sentence in theory.sentences:
             if isinstance(sentence, Axiom):
-                normalized_sentences.append(sentence.formula)
+                normalized_formulas.append(sentence.formula)
 
             elif isinstance(sentence, FixpointDefinition):
-                normalized_sentences.append(sentence.as_formula())
+                normalized_formulas.append(sentence.as_formula())
 
             else:
                 assert False, f"unsupported sentence {sentence}"
 
         # skolemize all sentences in the theory
-        for i, sentence in enumerate(normalized_sentences):
-            language, skolemized = NaturalProof.skolemize(language, sentence)
-            normalized_sentences[i] = skolemized
+        for i, formula in enumerate(normalized_formulas):
+            language, skolemized = NaturalProof.skolemize(language, formula)
+            normalized_formulas[i] = skolemized
 
         # negate the goal formula and then skolemize it
         negated_formula = Negation(formula).quantify_all_free_variables()
         language, skolemized_negated_formula = NaturalProof.skolemize(language, negated_formula)
 
-        normalized_sentences.append(skolemized_negated_formula)
+        normalized_formulas.append(skolemized_negated_formula)
 
         # theory |= formula
         # iff theory /\ not formula is unsatisfiable
 
-        return language, NaturalProof.term_instantiate(language, foreground_sort, normalized_sentences, depth)
+        return language, NaturalProof.term_instantiate(language, foreground_sort, tuple(normalized_formulas), depth)

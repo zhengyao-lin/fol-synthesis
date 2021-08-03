@@ -1,9 +1,5 @@
-from typing import Any
-
-from synthesis import smt
-from synthesis.fol import *
-from synthesis.synthesis import *
-from synthesis.parser.parser import Parser
+from fol import *
+from fol.prover import *
 
 
 theory = Parser.parse_theory(r"""
@@ -25,9 +21,14 @@ theory LIST
 end
 """)
 
-def prove(goal_src: str, depth: int):
+sort = theory.language.get_sort("Pointer")
+assert sort is not None
+sort_pointer = sort
+
+
+def prove(goal_src: str, depth: int) -> None:
     goal = Parser.parse_formula(theory.language, goal_src)
-    language, conjuncts = NaturalProof.encode_validity(theory, theory.language.get_sort("Pointer"), goal, depth)
+    language, conjuncts = NaturalProof.encode_validity(theory, sort_pointer, goal, depth)
 
     # print(language)
     # for conjunct in conjuncts:

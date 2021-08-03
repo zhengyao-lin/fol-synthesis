@@ -1,9 +1,4 @@
-from typing import Any
-
-from synthesis import smt
-from synthesis.fol import *
-from synthesis.synthesis import *
-from synthesis.parser.parser import Parser
+from fol import *
 
 
 theory = Parser.parse_theory(r"""
@@ -51,10 +46,10 @@ z = Variable("z", sort_pointer)
 # free variables are universally quantified
 template = Implication(
     Conjunction(
-        AtomicFormulaVariable(language, (x, y, z), 0),
-        AtomicFormulaVariable(language, (x, y, z), 0),
+        AtomicFormulaTemplate(language, (x, y, z), 0),
+        AtomicFormulaTemplate(language, (x, y, z), 0),
     ),
-    AtomicFormulaVariable(language, (x, y, z), 0),
+    AtomicFormulaTemplate(language, (x, y, z), 0),
 )
 
 trivial_model = FOProvableModelVariable(theory, unfold_depth=2)
@@ -63,15 +58,15 @@ goal_model = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
         Implication(
-            AtomicFormulaVariable(language, (x, y, z), 0),
-            AtomicFormulaVariable(language, (x, y, z), 0),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
         ),
         Implication(
             Conjunction(
-                AtomicFormulaVariable(language, (x, y, z), 0),
-                AtomicFormulaVariable(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
             ),
-            AtomicFormulaVariable(language, (x, y, z), 0),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
         ),
     ),
     trivial_model,

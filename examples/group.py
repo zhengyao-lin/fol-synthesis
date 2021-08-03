@@ -1,9 +1,4 @@
-from typing import Any
-
-from synthesis import smt
-from synthesis.fol import *
-from synthesis.synthesis import *
-from synthesis.parser.parser import Parser
+from fol import *
 
 
 group_theory = Parser.parse_theory(r"""
@@ -66,14 +61,14 @@ goal_model = FiniteLFPModelVariable(ab_group_theory, size_bounds={ sort_group: 8
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
-        AtomicFormulaVariable(group_language, (x, y), 1),
-        AtomicFormulaVariable(group_language, (x, y), 2),
+        AtomicFormulaTemplate(group_language, (x, y), 1),
+        AtomicFormulaTemplate(group_language, (x, y), 2),
         # Implication(
         #     Conjunction(
-        #         AtomicFormulaVariable(group_language, (x, y), 2),
-        #         AtomicFormulaVariable(group_language, (x, y), 2),
+        #         AtomicFormulaTemplate(group_language, (x, y), 2),
+        #         AtomicFormulaTemplate(group_language, (x, y), 2),
         #     ),
-        #     AtomicFormulaVariable(group_language, (x, y), 2),
+        #     AtomicFormulaTemplate(group_language, (x, y), 2),
         # ),
     ),
     trivial_model,

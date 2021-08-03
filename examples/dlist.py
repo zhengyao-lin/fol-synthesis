@@ -1,9 +1,4 @@
-from typing import Any
-
-from synthesis import smt
-from synthesis.fol import *
-from synthesis.synthesis import *
-from synthesis.parser.parser import Parser
+from fol import *
 
 
 theory = Parser.parse_theory(r"""
@@ -91,15 +86,15 @@ goal_model = FiniteLFPModelVariable(theory, size_bounds={ sort_pointer: 4 })
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
         Implication(
-            AtomicFormulaVariable(language, (x, y), 0),
-            AtomicFormulaVariable(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
         ),
         Implication(
             Conjunction(
-                AtomicFormulaVariable(language, (x, y), 0),
-                AtomicFormulaVariable(language, (x, y), 0),
+                AtomicFormulaTemplate(language, (x, y), 0),
+                AtomicFormulaTemplate(language, (x, y), 0),
             ),
-            AtomicFormulaVariable(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
         ),
     ),
     trivial_model,

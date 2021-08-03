@@ -245,4 +245,4 @@ class Parser:
         ast = Parser.FORMULA_PARSER.parse(src)
         formula = ASTTransformer().transform(ast)
         assert isinstance(formula, Formula)
-        return Resolver.resolve_term(language, formula)
+        return Resolver.resolve_formula(language, formula)

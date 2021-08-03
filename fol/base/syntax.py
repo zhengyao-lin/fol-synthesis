@@ -8,12 +8,11 @@ from typing import Tuple, Union, Mapping, Set
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
-from synthesis import smt
+from fol.smt import smt
+from fol.synthesis.template import Template
 
 from .language import BaseAST, Sort, FunctionSymbol, RelationSymbol, Language
 from .semantics import Structure
-
-from synthesis.template import Template
 
 
 class Term(BaseAST, Template["Term"], ABC):

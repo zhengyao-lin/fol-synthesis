@@ -1,9 +1,4 @@
-from typing import Any
-
-from synthesis import smt
-from synthesis.fol import *
-from synthesis.synthesis import *
-from synthesis.parser.parser import Parser
+from fol import *
 
 
 theory = Parser.parse_theory(r"""
@@ -75,15 +70,15 @@ for _ in CEGISynthesizer().synthesize_for_model_classes(
         # first synthesize R(...) -> S(...)
         # then synthesize R1(...) /\ R2(...) -> S(...)
         Implication(
-            AtomicFormulaVariable(language, (x,), 0),
-            AtomicFormulaVariable(language, (x,), 0),
+            AtomicFormulaTemplate(language, (x,), 0),
+            AtomicFormulaTemplate(language, (x,), 0),
         ),
         Implication(
             Conjunction(
-                AtomicFormulaVariable(language, (x,), 0),
-                AtomicFormulaVariable(language, (x,), 0),
+                AtomicFormulaTemplate(language, (x,), 0),
+                AtomicFormulaTemplate(language, (x,), 0),
             ),
-            AtomicFormulaVariable(language, (x,), 1),
+            AtomicFormulaTemplate(language, (x,), 1),
         ),
     ),
     trivial_model,

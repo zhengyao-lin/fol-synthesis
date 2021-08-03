@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, Iterable
 from dataclasses import dataclass
 
 from .language import BaseAST, RelationSymbol
@@ -108,3 +108,9 @@ class Axiom(Sentence):
 class Theory(BaseAST):
     language: Language
     sentences: Tuple[Sentence, ...]
+
+    def extend_axioms(self, axioms: Iterable[Formula]) -> Theory:
+        return Theory(
+            self.language,
+            self.sentences + tuple(map(Axiom, axioms)),
+        )

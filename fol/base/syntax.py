@@ -55,6 +55,9 @@ class Formula(BaseAST, Template["Formula"], ABC):
 
         return formula
 
+    def strip_universal_quantifiers(self) -> Formula:
+        return self
+
     def __hash__(self) -> int:
         raise NotImplementedError()
 
@@ -87,8 +90,7 @@ class Variable(Term):
         return self
 
     def equals(self, value: Term) -> smt.SMTTerm:
-        assert self == value
-        return smt.TRUE()
+        return smt.Bool(self == value)
 
     def get_sort(self) -> Sort:
         return self.sort
@@ -126,7 +128,8 @@ class Application(Term):
         return self
 
     def equals(self, value: Term) -> smt.SMTTerm:
-        assert isinstance(value, Application)
+        if not isinstance(value, Application) or value.function_symbol != self.function_symbol:
+            return smt.FALSE()
         return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
 
     def get_sort(self) -> Sort:
@@ -160,8 +163,7 @@ class Verum(Formula):
         return self
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert self == value
-        return smt.TRUE()
+        return smt.Bool(self == value)
 
 
 @dataclass
@@ -185,8 +187,7 @@ class Falsum(Formula):
         return self
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert self == value
-        return smt.TRUE()
+        return smt.Bool(self == value)
 
 
 @dataclass(frozen=True)
@@ -223,7 +224,8 @@ class RelationApplication(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, RelationApplication)
+        if not isinstance(value, RelationApplication) or value.relation_symbol != self.relation_symbol:
+            return smt.FALSE()
         return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
 
 
@@ -263,7 +265,8 @@ class Conjunction(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, Conjunction)
+        if not isinstance(value, Conjunction):
+            return smt.FALSE()
         return smt.And(
             self.left.equals(value.left),
             self.right.equals(value.right),
@@ -303,7 +306,8 @@ class Disjunction(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, Disjunction)
+        if not isinstance(value, Disjunction):
+            return smt.FALSE()
         return smt.And(
             self.left.equals(value.left),
             self.right.equals(value.right),
@@ -333,7 +337,8 @@ class Negation(Formula):
         return Negation(self.formula.get_from_smt_model(model))
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, Negation)
+        if not isinstance(value, Negation):
+            return smt.FALSE()
         return self.formula.equals(value.formula)
 
 
@@ -370,7 +375,8 @@ class Implication(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, Implication)
+        if not isinstance(value, Implication):
+            return smt.FALSE()
         return smt.And(
             self.left.equals(value.left),
             self.right.equals(value.right),
@@ -410,7 +416,8 @@ class Equivalence(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, Equivalence)
+        if not isinstance(value, Equivalence):
+            return smt.FALSE()
         return smt.And(
             self.left.equals(value.left),
             self.right.equals(value.right),
@@ -449,9 +456,13 @@ class UniversalQuantification(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, UniversalQuantification) and \
-               self.variable == value.variable
+        if not isinstance(value, UniversalQuantification) or \
+           value.variable != self.variable:
+            return smt.FALSE()
         return self.body.equals(value.body)
+
+    def strip_universal_quantifiers(self) -> Formula:
+        return self.body.strip_universal_quantifiers()
 
 
 @dataclass(frozen=True)
@@ -486,6 +497,7 @@ class ExistentialQuantification(Formula):
         )
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        assert isinstance(value, ExistentialQuantification) and \
-               self.variable == value.variable
+        if not isinstance(value, ExistentialQuantification) or \
+           value.variable != self.variable:
+            return smt.FALSE()
         return self.body.equals(value.body)

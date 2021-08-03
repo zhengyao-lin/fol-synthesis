@@ -14,8 +14,6 @@ language = Language(
     # (RelationSymbol((), "B"),)
 )
 
-free_vars = (Variable("x", sort_a), Variable("y", sort_b))
-
 def exhaust_variable(var: Template[Any]) -> None:
     with smt.Solver(name="z3") as solver:
         solver.add_assertion(var.get_constraint())
@@ -25,6 +23,37 @@ def exhaust_variable(var: Template[Any]) -> None:
             print(val)
             solver.add_assertion(smt.Not(var.equals(val)))
 
-# term_var = TermTemplate(language, free_vars, 2)
-# atomic_formula_var = AtomicFormulaTemplate(language, free_vars, 0)
-exhaust_variable(QuantifierFreeFormulaTemplate(language, (), 0, 1)) # should generate 42 items
+f = FunctionSymbol((sort_a,), sort_a, "f")
+A = RelationSymbol((), "A")
+B = RelationSymbol((), "B")
+C = RelationSymbol((sort_a,), "C")
+
+language1 = Language(
+    (sort_a,),
+    (f,),
+    (A, C),
+)
+
+language2 = Language(
+    (sort_a,),
+    (),
+    (B,)
+)
+
+x = Variable("x", sort_a)
+y = Variable("y", sort_a)
+
+# exhaust_variable(UnionFormulaTemplate(
+#     QuantifierFreeFormulaTemplate(language1, (), 0, 1),
+#     QuantifierFreeFormulaTemplate(language2, (), 0, 1),
+# )) # should generate 12 items
+
+exhaust_variable(QuantifierFreeFormulaTemplate(language1, (x,), 0, 1).substitute(
+    {
+        x: Application(f, (x,))
+    }
+).substitute(
+    {
+        x: Application(f, (x,))
+    }
+))

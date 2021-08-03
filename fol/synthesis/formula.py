@@ -1,9 +1,62 @@
-from typing import Tuple, Mapping, Callable, Optional
+from __future__ import annotations
+
+from typing import Tuple, Mapping, Callable, Optional, Dict
 
 from fol.smt import smt
 from fol.base.syntax import *
 
 from .template import Template, BoundedIntegerVariable
+
+
+class UnionFormulaTemplate(Formula):
+    """
+    A template whose value ranges in the union of all given templates
+    """
+
+    def __init__(self, *templates: Formula):
+        assert len(templates) != 0
+        self.node = BoundedIntegerVariable(0, len(templates))
+        self.templates = tuple(templates)
+
+    def get_free_variables(self) -> Set[Variable]:
+        free_vars = set()
+
+        for template in self.templates:
+            free_vars.update(template.get_free_variables())
+
+        return free_vars
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> UnionFormulaTemplate:
+        return UnionFormulaTemplate(*(template.substitute(substitution) for template in self.templates))
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.And(
+                self.node.equals(index + 1),
+                template.get_constraint()
+            )
+            for index, template in enumerate(self.templates)
+        ))
+
+    def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
+        node_value = self.node.get_from_smt_model(model)
+        assert 1 <= node_value <= len(self.templates), \
+               f"invalid node value {node_value}"
+
+        return self.templates[node_value - 1].get_from_smt_model(model)
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        return smt.Or(*(template.equals(value) for template in self.templates))
+
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.Ite(
+                self.node.equals(index + 1),
+                template.interpret(structure, valuation),
+                smt.FALSE(),
+            )
+            for index, template in enumerate(self.templates)
+        ))
 
 
 class TermTemplate(Term):
@@ -16,6 +69,8 @@ class TermTemplate(Term):
         self.free_vars = free_vars
         self.depth = depth
         self.sort = sort
+        
+        self.substitution: Dict[Variable, Term] = { var: var for var in self.free_vars }
 
         self.node = BoundedIntegerVariable(0, len(self.free_vars) + len(self.language.function_symbols))
 
@@ -25,10 +80,18 @@ class TermTemplate(Term):
             self.subterms = ()
 
     def get_free_variables(self) -> Set[Variable]:
-        return set(self.free_vars)
+        free_vars = set()
 
-    def substitute(self, substitution: Mapping[Variable, Term]) -> Term:
-        raise NotImplementedError()
+        for var in self.free_vars:
+            free_vars.update(self.substitution[var].get_free_variables())
+
+        return free_vars
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> TermTemplate:
+        # TODO: check sorting
+        new_template = TermTemplate(self.language, self.free_vars, self.depth, self.sort)
+        new_template.substitution = { k: v.substitute(substitution) for k, v in self.substitution.items() }
+        return new_template
 
     def get_constraint(self) -> smt.SMTTerm:
         """
@@ -44,27 +107,35 @@ class TermTemplate(Term):
         assert node_value != 0, f"unexpected node value {node_value}"
 
         if node_value <= len(self.free_vars):
-            return self.free_vars[node_value - 1]
+            return self.substitution[self.free_vars[node_value - 1]].get_from_smt_model(model)
         else:
             symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
             arity = len(symbol.input_sorts)
             return Application(symbol, tuple(subterm.get_from_smt_model(model) for subterm in self.subterms[:arity]))
 
     def equals(self, value: Term) -> smt.SMTTerm:
-        if isinstance(value, Variable):
-            var_index = self.free_vars.index(value)
-            return self.node.equals(var_index + 1)
+        constraint = smt.FALSE()
 
-        elif isinstance(value, Application):
-            symbol_index = self.language.function_symbols.index(value.function_symbol)
-            arity = len(value.function_symbol.input_sorts)
+        for node_value in range(1, len(self.free_vars) + len(self.language.function_symbols) + 1):
+            if node_value <= len(self.free_vars):
+                variable = self.free_vars[node_value - 1]
+                constraint = smt.Or(smt.And(self.node.equals(node_value), self.substitution[variable].equals(value)), constraint)
+            elif isinstance(value, Application):
+                symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
+                arity = len(symbol.input_sorts)
 
-            return smt.And(
-                self.node.equals(symbol_index + 1 + len(self.free_vars)),
-                *(subterm.equals(argument) for argument, subterm in zip(value.arguments, self.subterms[:arity])),
-            )
+                if value.function_symbol == symbol and (self.depth != 0 or arity == 0):
+                    assert len(value.arguments) == arity
 
-        assert False, f"unknown term {value}"
+                    constraint = smt.Or(
+                        smt.And(
+                            self.node.equals(node_value),
+                            *(subterm.equals(argument) for argument, subterm in zip(value.arguments, self.subterms[:arity])),
+                        ),
+                        constraint,
+                    )
+
+        return constraint
 
     def get_is_null_constraint(self) -> smt.SMTTerm:
         """
@@ -86,6 +157,7 @@ class TermTemplate(Term):
                     constraint = smt.Or(
                         smt.And(
                             self.node.equals(node_value),
+                            self.substitution[variable].get_constraint(),
                             *(subterm.get_is_null_constraint() for subterm in self.subterms),
                         ),
                         constraint,
@@ -125,7 +197,7 @@ class TermTemplate(Term):
                 variable = self.free_vars[node_value - 1]
                 if variable.sort == sort:
                     assert variable in valuation, f"unable to interpret variable {variable}"
-                    interp = smt.Ite(self.node.equals(node_value), valuation[variable], interp)
+                    interp = smt.Ite(self.node.equals(node_value), self.substitution[variable].interpret(structure, valuation), interp)
 
             else:
                 symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
@@ -146,22 +218,29 @@ class AtomicFormulaTemplate(Formula):
     Template for an atomic formula (i.e. false, true, or other relations)
     """
 
-    def __init__(self, language: Language, free_vars: Tuple[Variable, ...], term_depth: int):
+    def __init__(self, language: Language, free_vars: Tuple[Variable, ...], term_depth: int, allow_constant: bool = False):
         self.language = language
-        self.free_vars = free_vars
         self.term_depth = term_depth
+        self.allow_constant = allow_constant # allow bottom and top
         self.node = BoundedIntegerVariable(0, 3 + len(language.relation_symbols))
 
         self.subterms = tuple(TermTemplate(language, free_vars, term_depth) for _ in range(language.get_max_relation_arity()))
 
     def __str__(self) -> str:
-        return f"<φ({', '.join(map(str, self.free_vars))}), depth {self.term_depth}>"
+        return f"<φ({', '.join(map(str, self.get_free_variables()))}), depth {self.term_depth}>"
 
     def get_free_variables(self) -> Set[Variable]:
-        return set(self.free_vars)
+        free_vars = set()
 
-    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
-        raise NotImplementedError()
+        for subterm in self.subterms:
+            free_vars.update(subterm.get_free_variables())
+
+        return free_vars
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> AtomicFormulaTemplate:
+        new_formula = AtomicFormulaTemplate(self.language, (), self.term_depth, self.allow_constant)
+        new_formula.subterms = tuple(subterm.substitute(substitution) for subterm in self.subterms)
+        return new_formula
 
     def get_constraint(self) -> smt.SMTTerm:
         return self.get_well_formedness_constraint()
@@ -187,9 +266,13 @@ class AtomicFormulaTemplate(Formula):
         """
         if isinstance(value, Falsum):
             return self.node.equals(1)
+
         elif isinstance(value, Verum):
             return self.node.equals(2)
-        elif isinstance(value, RelationApplication):
+
+        elif isinstance(value, RelationApplication) and \
+             value.relation_symbol in self.language.relation_symbols:
+
             symbol_index = self.language.relation_symbols.index(value.relation_symbol)
             arity = len(value.relation_symbol.input_sorts)
 
@@ -198,7 +281,8 @@ class AtomicFormulaTemplate(Formula):
                 *(subterm.equals(argument) for argument, subterm in zip(value.arguments, self.subterms[:arity])),
             )
 
-        assert False, f"unexpected atomic formula {value}"
+        else:
+            return smt.FALSE()
 
     def get_is_null_constraint(self) -> smt.SMTTerm:
         return smt.And(
@@ -211,13 +295,14 @@ class AtomicFormulaTemplate(Formula):
 
         for node_value in range(1, 3 + len(self.language.relation_symbols)):
             if node_value == 1 or node_value == 2:
-                constraint = smt.Or(
-                    smt.And(
-                        self.node.equals(node_value),
-                        *(subterm.get_is_null_constraint() for subterm in self.subterms),
-                    ),
-                    constraint,
-                )
+                if self.allow_constant:
+                    constraint = smt.Or(
+                        smt.And(
+                            self.node.equals(node_value),
+                            *(subterm.get_is_null_constraint() for subterm in self.subterms),
+                        ),
+                        constraint,
+                    )
             else:
                 symbol = self.language.relation_symbols[node_value - 3]
                 arity = len(symbol.input_sorts)
@@ -266,7 +351,6 @@ class QuantifierFreeFormulaTemplate(Formula):
 
     def __init__(self, language: Language, free_vars: Tuple[Variable, ...], term_depth: int, formula_depth: int):
         self.language = language
-        self.free_vars = free_vars
         self.term_depth = term_depth
         self.formula_depth = formula_depth
 
@@ -293,10 +377,18 @@ class QuantifierFreeFormulaTemplate(Formula):
         }[node_value]
 
     def get_free_variables(self) -> Set[Variable]:
-        return set(self.free_vars)
+        free_vars = self.atom.get_free_variables()
 
-    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
-        raise NotImplementedError()
+        for subformula in self.subformulas:
+            free_vars.update(subformula.get_free_variables())
+
+        return free_vars
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> QuantifierFreeFormulaTemplate:
+        new_formula = QuantifierFreeFormulaTemplate(self.language, (), self.term_depth, self.formula_depth)
+        new_formula.atom = self.atom.substitute(substitution)
+        new_formula.subformulas = tuple(subformula.substitute(substitution) for subformula in self.subformulas)
+        return new_formula
 
     def get_is_null_constraint(self) -> smt.SMTTerm:
         return smt.And(
@@ -388,8 +480,9 @@ class QuantifierFreeFormulaTemplate(Formula):
                 self.subformulas[0].equals(value.left),
                 self.subformulas[1].equals(value.right),
             )
-
-        assert False, f"unexpected formula {value}"
+        
+        else:
+            return smt.FALSE()
 
     def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         interp = smt.FALSE()

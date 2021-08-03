@@ -1,4 +1,6 @@
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Tuple, Generator
+
+from contextlib import contextmanager
 
 from pysmt.shortcuts import FreshSymbol, TRUE, FALSE, And, Or, Not, Implies, Iff, Ite, Equals, BV, get_model, Solver, ForAll, Exists, Int, GT, GE, LT, LE, Bool # type: ignore
 from pysmt.typing import BOOL, INT, BVType, FunctionType # type: ignore
@@ -21,6 +23,15 @@ SMTScript = Any
 def FreshFunction(input_sorts: Tuple[SMTSort, ...], output_sort: SMTSort) -> SMTFunction:
     symbol = FreshSymbol(FunctionType(output_sort, input_sorts))
     return lambda *args: Apply(symbol, args)
+
+
+@contextmanager
+def push_solver(solver: Solver) -> Generator[None, None, None]:
+    try:
+        solver.push()
+        yield
+    finally:
+        solver.pop()
 
 
 class SMTLIB:

@@ -4,7 +4,7 @@ Syntax of many-sorted first-order logic
 
 from __future__ import annotations
 
-from typing import Tuple, Union, Mapping, Set
+from typing import TypeVar, Generic, Tuple, Union, Mapping, Set
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -15,9 +15,12 @@ from .language import BaseAST, Sort, FunctionSymbol, RelationSymbol, Language
 from .semantics import Structure
 
 
-class Term(BaseAST, Template["Term"], ABC):
+_T = TypeVar("_T")
+
+
+class Interpretable(Generic[_T], ABC):
     @abstractmethod
-    def substitute(self, substitution: Mapping[Variable, Term]) -> Term: ...
+    def substitute(self, substitution: Mapping[Variable, Term]) -> _T: ...
 
     @abstractmethod
     def get_free_variables(self) -> Set[Variable]: ...
@@ -25,6 +28,8 @@ class Term(BaseAST, Template["Term"], ABC):
     @abstractmethod
     def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm: ...
 
+
+class Term(BaseAST, Template["Term"], Interpretable["Term"], ABC):
     def equals(self, value: Term) -> smt.SMTTerm:
         raise NotImplementedError()
 
@@ -32,17 +37,7 @@ class Term(BaseAST, Template["Term"], ABC):
         raise NotImplementedError()
 
 
-class Formula(BaseAST, Template["Formula"], ABC):
-    @abstractmethod
-    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula: ...
-    # TODO: not capture free
-
-    @abstractmethod
-    def get_free_variables(self) -> Set[Variable]: ...
-
-    @abstractmethod
-    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm: ...
-
+class Formula(BaseAST, Template["Formula"], Interpretable["Formula"], ABC):
     def equals(self, value: Formula) -> smt.SMTTerm:
         raise NotImplementedError()
 

@@ -1,62 +1,11 @@
 from __future__ import annotations
 
-from typing import Tuple, Mapping, Callable, Optional, Dict
+from typing import Tuple, Mapping, Callable, Optional, Dict, overload
 
 from fol.smt import smt
 from fol.base.syntax import *
 
-from .template import Template, BoundedIntegerVariable
-
-
-class UnionFormulaTemplate(Formula):
-    """
-    A template whose value ranges in the union of all given templates
-    """
-
-    def __init__(self, *templates: Formula):
-        assert len(templates) != 0
-        self.node = BoundedIntegerVariable(0, len(templates))
-        self.templates = tuple(templates)
-
-    def get_free_variables(self) -> Set[Variable]:
-        free_vars = set()
-
-        for template in self.templates:
-            free_vars.update(template.get_free_variables())
-
-        return free_vars
-
-    def substitute(self, substitution: Mapping[Variable, Term]) -> UnionFormulaTemplate:
-        return UnionFormulaTemplate(*(template.substitute(substitution) for template in self.templates))
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return smt.Or(*(
-            smt.And(
-                self.node.equals(index + 1),
-                template.get_constraint()
-            )
-            for index, template in enumerate(self.templates)
-        ))
-
-    def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
-        node_value = self.node.get_from_smt_model(model)
-        assert 1 <= node_value <= len(self.templates), \
-               f"invalid node value {node_value}"
-
-        return self.templates[node_value - 1].get_from_smt_model(model)
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        return smt.Or(*(template.equals(value) for template in self.templates))
-
-    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
-        return smt.Or(*(
-            smt.Ite(
-                self.node.equals(index + 1),
-                template.interpret(structure, valuation),
-                smt.FALSE(),
-            )
-            for index, template in enumerate(self.templates)
-        ))
+from .template import Template, BoundedIntegerVariable, UnionTemplate
 
 
 class TermTemplate(Term):
@@ -91,13 +40,17 @@ class TermTemplate(Term):
         # TODO: check sorting
         new_template = TermTemplate(self.language, self.free_vars, self.depth, self.sort)
         new_template.substitution = { k: v.substitute(substitution) for k, v in self.substitution.items() }
+        new_template.subterms = tuple(subterm.substitute(substitution) for subterm in self.subterms)
         return new_template
 
     def get_constraint(self) -> smt.SMTTerm:
         """
         The term can be of any sort
         """
-        return smt.Or(*(self.get_well_formedness_constraint(sort) for sort in self.language.sorts))
+        if self.sort is None:
+            return smt.Or(*(self.get_well_formedness_constraint(sort) for sort in self.language.sorts))
+        else:
+            return self.get_well_formedness_constraint(self.sort)
 
     def get_from_smt_model(self, model: smt.SMTModel) -> Term:
         """
@@ -544,3 +497,54 @@ class QuantifierFreeFormulaTemplate(Formula):
                     )
 
         return interp
+
+
+class UnionFormulaTemplate(UnionTemplate[Formula], Formula):
+    templates: Tuple[Formula, ...]
+
+    def get_free_variables(self) -> Set[Variable]:
+        free_vars = set()
+
+        for template in self.templates:
+            free_vars.update(template.get_free_variables())
+
+        return free_vars
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> UnionFormulaTemplate:
+        return type(self)(*(template.substitute(substitution) for template in self.templates))
+
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.Ite(
+                self.node.equals(node_value),
+                template.interpret(structure, valuation),
+                smt.FALSE(),
+            )
+            for node_value, template in enumerate(self.templates, 1)
+        ))
+
+
+class UnionTermTemplate(UnionTemplate[Term], Term):
+    # TODO: exactly the same code as UnionFormulaTemplate
+    templates: Tuple[Term, ...]
+
+    def get_free_variables(self) -> Set[Variable]:
+        free_vars = set()
+
+        for template in self.templates:
+            free_vars.update(template.get_free_variables())
+
+        return free_vars
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> UnionTermTemplate:
+        return type(self)(*(template.substitute(substitution) for template in self.templates))
+
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.Ite(
+                self.node.equals(node_value),
+                template.interpret(structure, valuation),
+                smt.FALSE(),
+            )
+            for node_value, template in enumerate(self.templates, 1)
+        ))

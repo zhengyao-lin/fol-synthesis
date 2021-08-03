@@ -45,3 +45,31 @@ class BoundedIntegerVariable(Template[int]):
 
     def get_range(self) -> Iterable[int]:
         return range(self.lower, self.upper + 1)
+
+
+class UnionTemplate(Template[T]):
+    def __init__(self, *templates: Template[T]):
+        assert len(templates) != 0
+        self.node = BoundedIntegerVariable(0, len(templates))
+        self.templates = tuple(templates)
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.And(
+                self.node.equals(node_value),
+                template.get_constraint(),
+            )
+            for node_value, template in enumerate(self.templates, 1)
+        ))
+
+    def get_from_smt_model(self, model: smt.SMTModel) -> T:
+        node_value = self.node.get_from_smt_model(model)
+        assert 1 <= node_value <= len(self.templates), \
+               f"invalid node value {node_value}"
+        return self.templates[node_value - 1].get_from_smt_model(model)
+
+    def equals(self, value: T) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.And(self.node.equals(node_value), template.equals(value))
+            for node_value, template in enumerate(self.templates, 1))
+        )

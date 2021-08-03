@@ -4,7 +4,7 @@ Many-sorted language
 
 from __future__ import annotations
 
-from typing import Tuple, Optional, Iterable
+from typing import Any, Tuple, Optional, Iterable
 from dataclasses import dataclass
 
 from fol.smt import smt
@@ -21,6 +21,9 @@ class Sort(BaseAST):
     def __str__(self) -> str:
         return self.name
 
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, Sort) and self.name == other.name
+
 
 @dataclass(frozen=True)
 class FunctionSymbol(BaseAST):
@@ -36,6 +39,12 @@ class FunctionSymbol(BaseAST):
         input_sort_string = " ".join(map(str, self.input_sorts))
         return f"{self.name}: {input_sort_string} -> {self.output_sort}"
 
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, FunctionSymbol) and \
+               self.input_sorts == other.input_sorts and \
+               self.output_sort == other.output_sort and \
+               self.name == other.name
+
 
 @dataclass(frozen=True)
 class RelationSymbol(BaseAST):
@@ -49,6 +58,11 @@ class RelationSymbol(BaseAST):
 
         input_sort_string = " ".join(map(str, self.input_sorts))
         return f"{self.name}: {input_sort_string}"
+
+    def __eq__(self, other: Any) -> bool:
+        return isinstance(other, RelationSymbol) and \
+               self.input_sorts == other.input_sorts and \
+               self.name == other.name
 
 
 @dataclass(frozen=True)

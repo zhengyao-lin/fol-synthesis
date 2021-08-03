@@ -8,7 +8,7 @@ from fol.base.syntax import *
 from fol.base.theory import *
 
 
-T = TypeVar("T")
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -17,8 +17,8 @@ class Attribute:
     arguments: Tuple[str, ...]
 
 
-class UnresolvedAST(Generic[T]):
-    def substitute(self, substitution: Mapping[Variable, Term]) -> T:
+class UnresolvedAST(Generic[_T]):
+    def substitute(self, substitution: Mapping[Variable, Term]) -> _T:
         raise NotImplementedError()
 
     def get_free_variables(self) -> Set[Variable]:
@@ -27,7 +27,7 @@ class UnresolvedAST(Generic[T]):
     def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         raise NotImplementedError()
 
-    def get_from_smt_model(self, model: smt.SMTModel) -> T:
+    def get_from_smt_model(self, model: smt.SMTModel) -> _T:
         raise NotImplementedError()
 
     def get_constraint(self) -> smt.SMTTerm:

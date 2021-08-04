@@ -2,8 +2,13 @@ from typing import Any, Callable, Tuple, Generator
 
 from contextlib import contextmanager
 
-from pysmt.shortcuts import FreshSymbol, TRUE, FALSE, And, Or, Not, Implies, Iff, Ite, Equals, BV, get_model, Solver, ForAll, Exists, Int, GT, GE, LT, LE, Bool # type: ignore
-from pysmt.typing import BOOL, INT, BVType, FunctionType # type: ignore
+from pysmt.shortcuts import \
+    FreshSymbol, \
+    TRUE, FALSE, And, Or, Not, Implies, Iff, ForAll, Exists, Ite, Equals, \
+    GT, GE, LT, LE, \
+    BV, Int, Bool, \
+    get_model, Solver # type: ignore
+from pysmt.typing import BOOL, INT, BVType, FunctionType, Type # type: ignore
 from pysmt.smtlib.parser import SmtLibParser # type: ignore
 
 from pysmt.shortcuts import Function as Apply
@@ -23,6 +28,16 @@ SMTScript = Any
 def FreshFunction(input_sorts: Tuple[SMTSort, ...], output_sort: SMTSort) -> SMTFunction:
     symbol = FreshSymbol(FunctionType(output_sort, input_sorts))
     return lambda *args: Apply(symbol, args)
+
+
+_fresh_sort_counter = 0
+
+
+def FreshSort() -> SMTSort:
+    global _fresh_sort_counter
+    name = f"FreshSort{_fresh_sort_counter}"
+    _fresh_sort_counter += 1
+    return Type(name)
 
 
 @contextmanager
@@ -56,11 +71,21 @@ class SMTLIB:
             declarations = []
             term_str = src
 
+            custom_sorts = set()
+
             for i, arg in enumerate(args, 1):
-                var = FreshSymbol(arg.get_type())
+                smt_sort = arg.get_type()
+
+                if smt_sort.is_custom_type():
+                    custom_sorts.add(smt_sort)
+
+                var = FreshSymbol(smt_sort)
                 substitution[var] = arg
                 declarations.append(f"(declare-fun {var.to_smtlib()} {var.get_type().as_smtlib()})")
                 term_str = term_str.replace(f"#{i}", var.to_smtlib())
+
+            # declare uninterpreted sorts
+            declarations = [ f"(declare-sort {str(sort)} {sort.arity})" for sort in custom_sorts ] + declarations
 
             try:
                 script_src = " ".join(declarations) + f" (assert {term_str})"

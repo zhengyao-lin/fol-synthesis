@@ -1,4 +1,4 @@
-from typing import Mapping, Dict
+from typing import Mapping, Dict, Optional
 
 from fol.smt import smt
 
@@ -23,24 +23,31 @@ class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
     are assigned uninterpreted SMT functions
     """
 
-    def __init__(self, language: Language, default_sort: smt.SMTSort):
+    def __init__(self, language: Language, default_sort: Optional[smt.SMTSort] = None):
+        """
+        If default_sort is None, fresh uninterpreted SMT sorts will be used for each uninterpreted sort in the language
+        """
+
         carriers: Dict[Sort, CarrierSet] = {}
         function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = {}
         relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = {}
 
         for sort in language.sorts:
             if sort.smt_hook is None:
-                carriers[sort] = RefinementCarrierSet(default_sort)
+                # TODO
+                carriers[sort] = RefinementCarrierSet(default_sort or smt.FreshSort())
+            else:
+                carriers[sort] = RefinementCarrierSet(sort.smt_hook)
 
         for function_symbol in language.function_symbols:
             if function_symbol.smt_hook is None:
-                smt_input_sorts = tuple(sort.smt_hook or default_sort for sort in function_symbol.input_sorts)
-                smt_output_sort = function_symbol.output_sort.smt_hook or default_sort
+                smt_input_sorts = tuple(carriers[sort].get_smt_sort() for sort in function_symbol.input_sorts)
+                smt_output_sort = carriers[function_symbol.output_sort].get_smt_sort()
                 function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
 
         for relation_symbol in language.relation_symbols:
             if relation_symbol.smt_hook is None:
-                smt_input_sorts = tuple(sort.smt_hook or default_sort for sort in relation_symbol.input_sorts)
+                smt_input_sorts = tuple(carriers[sort].get_smt_sort() for sort in relation_symbol.input_sorts)
                 relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
 
         super().__init__(language, carriers, function_interpretations, relation_interpretations)
@@ -75,9 +82,9 @@ class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
         raise NotImplementedError()
 
 
-class FiniteLFPModelTemplate(UninterpretedModelTemplate):
+class FiniteFOModelTemplate(UninterpretedModelTemplate):
     """
-    A variable/template for a LFP model of a given theory
+    A variable/template for a FO model of a given theory
     in which all interpreted sorts have finite domains
     """
 
@@ -85,7 +92,6 @@ class FiniteLFPModelTemplate(UninterpretedModelTemplate):
         super().__init__(theory.language, smt.INT)
 
         self.theory = theory
-        self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = {}
 
         # set all carrier sets to finite sets
         for sort in theory.language.sorts:
@@ -97,15 +103,6 @@ class FiniteLFPModelTemplate(UninterpretedModelTemplate):
                     tuple(smt.FreshSymbol(smt.INT) for _ in range(size_bounds[sort]))
                 )
                 self.carriers[sort] = carrier
-
-        # for any fixpoint definition, add a rank function
-        for sentence in theory.sentences:
-            if isinstance(sentence, FixpointDefinition):
-                relation_symbol = sentence.relation_symbol
-                assert relation_symbol not in self.rank_functions, \
-                       f"duplicate fixpoint definition for {relation_symbol}"
-                smt_input_sorts = tuple(sort.smt_hook or smt.INT for sort in relation_symbol.input_sorts)
-                self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
 
     def get_constraint(self) -> smt.SMTTerm:
         """
@@ -136,61 +133,9 @@ class FiniteLFPModelTemplate(UninterpretedModelTemplate):
             if isinstance(sentence, Axiom):
                 constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
             elif isinstance(sentence, FixpointDefinition):
-                constraint = smt.And(self.get_constraints_for_least_fixpoint(sentence), constraint)
+                constraint = smt.And(sentence.as_formula().interpret(self, {}), constraint)
             else:
                 assert False, f"unsupported sentence {sentence}"
-
-        return constraint
-
-    def get_constraints_for_least_fixpoint(self, definition: FixpointDefinition) -> smt.SMTTerm:
-        """
-        Return a constraint saying that the structure satisfies the given fixpoint definition (as least fixpoint)
-        """
-        
-        # enforcing fixpoint
-        constraint = definition.as_formula().interpret(self, {})
-
-        # use a rank function to enforce the least fixpoint
-        relation_symbol = definition.relation_symbol
-        rank_function = self.rank_functions[relation_symbol]
-
-        # state that the rank is non-negative
-        smt_input_sorts = tuple(self.get_smt_sort(sort) for sort in relation_symbol.input_sorts)
-        smt_input_vars = tuple(smt.FreshSymbol(smt_sort) for smt_sort in smt_input_sorts)
-        non_negative_constraint = smt.GE(rank_function(*smt_input_vars), smt.Int(0))
-
-        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
-            carrier = self.interpret_sort(sort)
-            non_negative_constraint = carrier.universally_quantify(var, non_negative_constraint)
-
-        constraint = smt.And(non_negative_constraint, constraint)
-
-        # state the rank invariant
-        # TODO: slightly hacky
-        valuation = { k: v for k, v in zip(definition.variables, smt_input_vars) }
-
-        # interpret the definition but with the relation R(...) replaced by
-        # f(...) < f(x)  /\ R(...)
-        old_interpretation = self.relation_interpretations[relation_symbol]
-        self.relation_interpretations[relation_symbol] = lambda *args: \
-            smt.And(
-                smt.LT(rank_function(*args), rank_function(*smt_input_vars)),
-                old_interpretation(*args),
-            )
-        interp = definition.definition.interpret(self, valuation)
-        self.relation_interpretations[relation_symbol] = old_interpretation
-
-        rank_invariant = smt.Implies(
-            old_interpretation(*smt_input_vars),
-            interp
-        )
-
-        # forall. R(...) -> phi((f(...) < f(x)  /\ R(...)) / R(...))
-        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
-            carrier = self.interpret_sort(sort)
-            rank_invariant = carrier.universally_quantify(var, rank_invariant)
-
-        constraint = smt.And(rank_invariant, constraint)
 
         return constraint
 
@@ -233,6 +178,89 @@ class FiniteLFPModelTemplate(UninterpretedModelTemplate):
         return SymbolicStructure(self.theory.language, concrete_carriers, concrete_functions, concrete_relations)
 
 
+class FiniteLFPModelTemplate(FiniteFOModelTemplate):
+    """
+    Similar to FiniteFOModelTemplate except having extra
+    constraint to enforce the fixpoint definitions to be
+    least fixpoints.
+    """
+
+    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
+        super().__init__(theory, size_bounds)
+
+        self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = {}
+
+        # for any fixpoint definition, add a rank function
+        for sentence in theory.sentences:
+            if isinstance(sentence, FixpointDefinition):
+                relation_symbol = sentence.relation_symbol
+                assert relation_symbol not in self.rank_functions, \
+                       f"duplicate fixpoint definition for {relation_symbol}"
+                smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
+                self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
+
+    def get_constraint(self) -> smt.SMTTerm:
+        """
+        The model should satify all sentences in the theory
+        """
+        constraint = super().get_constraint()
+        
+        for sentence in self.theory.sentences:
+            if isinstance(sentence, FixpointDefinition):
+                constraint = smt.And(self.get_constraints_for_least_fixpoint(sentence), constraint)
+
+        return constraint
+
+    def get_constraints_for_least_fixpoint(self, definition: FixpointDefinition) -> smt.SMTTerm:
+        """
+        Return a constraint saying that the structure satisfies the given fixpoint definition (as least fixpoint)
+        """
+        
+        # enforcing fixpoint
+        # NOTE: this is already added in FiniteFOModelTemplate
+        # constraint = definition.as_formula().interpret(self, {})
+
+        # use a rank function to enforce the least fixpoint
+        relation_symbol = definition.relation_symbol
+        rank_function = self.rank_functions[relation_symbol]
+
+        # state that the rank is non-negative
+        smt_input_sorts = tuple(self.get_smt_sort(sort) for sort in relation_symbol.input_sorts)
+        smt_input_vars = tuple(smt.FreshSymbol(smt_sort) for smt_sort in smt_input_sorts)
+        non_negative_constraint = smt.GE(rank_function(*smt_input_vars), smt.Int(0))
+
+        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
+            carrier = self.interpret_sort(sort)
+            non_negative_constraint = carrier.universally_quantify(var, non_negative_constraint)
+
+        # state the rank invariant
+        # TODO: slightly hacky
+        valuation = { k: v for k, v in zip(definition.variables, smt_input_vars) }
+
+        # interpret the definition but with the relation R(...) replaced by
+        # f(...) < f(x)  /\ R(...)
+        old_interpretation = self.relation_interpretations[relation_symbol]
+        self.relation_interpretations[relation_symbol] = lambda *args: \
+            smt.And(
+                smt.LT(rank_function(*args), rank_function(*smt_input_vars)),
+                old_interpretation(*args),
+            )
+        interp = definition.definition.interpret(self, valuation)
+        self.relation_interpretations[relation_symbol] = old_interpretation
+
+        rank_invariant = smt.Implies(
+            old_interpretation(*smt_input_vars),
+            interp
+        )
+
+        # forall. R(...) -> phi((f(...) < f(x)  /\ R(...)) / R(...))
+        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
+            carrier = self.interpret_sort(sort)
+            rank_invariant = carrier.universally_quantify(var, rank_invariant)
+
+        return smt.And(non_negative_constraint, rank_invariant)
+
+
 class FOProvableModelTemplate(UninterpretedModelTemplate):
     """
     A structure such that in a theory with fixpoint definitions,
@@ -241,7 +269,7 @@ class FOProvableModelTemplate(UninterpretedModelTemplate):
     """
 
     def __init__(self, theory: Theory, unfold_depth: int):
-        super().__init__(theory.language, smt.INT)
+        super().__init__(theory.language)
 
         self.theory = theory
 

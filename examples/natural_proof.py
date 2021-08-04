@@ -30,9 +30,8 @@ def prove(goal_src: str, depth: int) -> None:
     goal = Parser.parse_formula(theory.language, goal_src)
     language, conjuncts = NaturalProof.encode_validity(theory, sort_pointer, goal, depth)
 
-    # print(language)
     # for conjunct in conjuncts:
-    #     print(conjunct)
+    #     print("conjunct", conjunct)
 
     uninterp_structure = UninterpretedModelTemplate(language)
 
@@ -50,3 +49,6 @@ def prove(goal_src: str, depth: int) -> None:
 prove(r"(exists x: Pointer, y: Pointer. list(x) /\ list(y) /\ not eq(x, y)) -> exists x: Pointer. list(n(x))", 1)
 prove(r"forall x: Pointer. eq(n(x), nil()) -> list(x)", 1)
 prove(r"(forall x: Pointer. eq(n(x), x)) -> forall x: Pointer. not eq(x, nil()) -> not list(x)", 2)
+prove(r"forall x: Pointer. list(x) -> lseg(x, nil())", 2)
+prove(r"not in_lseg(nil(), nil(), nil())", 1)
+# prove(r"(forall x2:Pointer. (forall x1:Pointer. (forall x0:Pointer. ((not eq(x1:Pointer, x2:Pointer) /\ (eq(x0:Pointer, x1:Pointer) \/ (in_lseg(nil(), x2:Pointer, x2:Pointer) -> in_lseg(nil(), nil(), nil())))) -> (in_lseg(nil(), x2:Pointer, x2:Pointer) -> in_lseg(nil(), nil(), nil()))))))", 1)

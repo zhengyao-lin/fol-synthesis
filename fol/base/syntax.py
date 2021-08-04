@@ -97,7 +97,6 @@ class Application(Term):
     arguments: Tuple[Term, ...]
 
     def __str__(self) -> str:
-        if len(self.arguments) == 0: return self.function_symbol.name
         argument_string = ", ".join((str(arg) for arg in self.arguments))
         return f"{self.function_symbol.name}({argument_string})"
 
@@ -137,7 +136,7 @@ class Application(Term):
         return self.function_symbol.output_sort
 
 
-@dataclass
+@dataclass(frozen=True)
 class Verum(Formula):
     def __str__(self) -> str:
         return "⊤"
@@ -161,7 +160,7 @@ class Verum(Formula):
         return smt.Bool(self == value)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Falsum(Formula):
     def __str__(self) -> str:
         return "⊥"
@@ -231,6 +230,18 @@ AtomicFormula = Union[Verum, Falsum, RelationApplication]
 class Conjunction(Formula):
     left: Formula
     right: Formula
+
+    @staticmethod
+    def from_conjuncts(*conjuncts: Formula) -> Formula:
+        if len(conjuncts) == 0:
+            return Verum()
+
+        formula = conjuncts[-1]
+
+        for conjunct in conjuncts[:-1][::-1]:
+            formula = Conjunction(conjunct, formula)
+
+        return formula
 
     def __str__(self) -> str:
         return f"({self.left} /\\ {self.right})"

@@ -270,15 +270,15 @@ class NaturalProof:
         ground_terms: Set[Term] = set()
         instantiated_formulas: Set[Formula] = set()
 
-        for formula in formulas:
-            ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, formula))
+        # try to find ground terms in the language
+        for function_symbol in language.function_symbols:
+            if function_symbol.output_sort == foreground_sort and \
+            len(function_symbol.input_sorts) == 0:
+                ground_terms.add(Application(function_symbol, ()))
 
         if len(ground_terms) == 0:
-            # try to find ground terms in the language
-            for function_symbol in language.function_symbols:
-                if function_symbol.output_sort == foreground_sort and \
-                   len(function_symbol.input_sorts) == 0:
-                    ground_terms.add(Application(function_symbol, ()))
+            for formula in formulas:
+                ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, formula))
 
         assert len(ground_terms) != 0, \
                f"the given language does not have a ground term of sort {foreground_sort}"
@@ -294,7 +294,7 @@ class NaturalProof:
 
                 ordered_ground_terms = tuple(ground_terms)
 
-                for assignment in itertools.permutations(ordered_ground_terms, len(free_vars)):
+                for assignment in itertools.product(ordered_ground_terms, repeat=len(free_vars)):
                     substitution = dict(zip(free_vars, assignment))
                     instantiated_formula = formula.substitute(substitution)
                     instantiated_formulas.add(instantiated_formula)
@@ -309,17 +309,17 @@ class NaturalProof:
         return instantiated_formulas
 
     @staticmethod
-    def encode_validity(theory: Theory, foreground_sort: Sort, formula: Formula, depth: int) -> Tuple[Language, Set[Formula]]:
+    def encode_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[Language, Set[Formula]]:
         """
         Reduce the FO-validity of the formula in the given theory (i.e. whether theory |= formula)
         to the unsatisfiability of the returned conjunction of quantifier free, concrete formulas.
 
-        The given formula should be a closed formula
+        The given goal should be a closed formula
 
         The possibly expended language is also returned
         """
 
-        language = theory.language        
+        language = theory.language
         normalized_formulas = []
 
         # collect all sentences in the theory
@@ -340,12 +340,12 @@ class NaturalProof:
             normalized_formulas[i] = skolemized
 
         # negate the goal formula and then skolemize it
-        negated_formula = Negation(formula).quantify_all_free_variables()
-        language, skolemized_negated_formula = NaturalProof.skolemize(language, negated_formula)
+        negated_goal = Negation(goal).quantify_all_free_variables()
+        language, skolemized_negated_goal = NaturalProof.skolemize(language, negated_goal)
 
-        normalized_formulas.append(skolemized_negated_formula)
+        normalized_formulas.append(skolemized_negated_goal)
 
-        # theory |= formula
-        # iff theory /\ not formula is unsatisfiable
+        # theory |= goal
+        # iff theory /\ not goal is unsatisfiable
 
         return language, NaturalProof.term_instantiate(language, foreground_sort, tuple(normalized_formulas), depth)

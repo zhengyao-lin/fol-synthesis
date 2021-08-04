@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple, Iterable
+from typing import Tuple, Iterable, Optional
 from dataclasses import dataclass
 
 from .language import BaseAST, RelationSymbol
@@ -114,3 +114,11 @@ class Theory(BaseAST):
             self.language,
             self.sentences + tuple(map(Axiom, axioms)),
         )
+
+    def find_fixpoint_definition(self, relation_symbol: RelationSymbol) -> Optional[FixpointDefinition]:
+        for sentence in self.sentences:
+            if isinstance(sentence, FixpointDefinition) and \
+               sentence.relation_symbol == relation_symbol:
+                return sentence
+
+        return None

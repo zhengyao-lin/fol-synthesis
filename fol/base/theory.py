@@ -122,3 +122,15 @@ class Theory(BaseAST):
                 return sentence
 
         return None
+
+    def remove_fixpoint_definition(self, name: str) -> Theory:
+        """
+        Remove a fixpoint definition from the theory
+        """
+        sentences = tuple(
+            sentence
+            for sentence in self.sentences
+            if not isinstance(sentence, FixpointDefinition) or sentence.relation_symbol.name != name
+        )
+
+        return Theory(self.language, sentences)

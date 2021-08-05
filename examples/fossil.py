@@ -7,7 +7,14 @@ import sys
 sys.setrecursionlimit(16000)
 
 
-def get_lemma_template(theory: Theory, lemma_language: Language, term_depth: int, formula_depth: int) -> Dict[RelationSymbol, Formula]:
+def get_lemma_template(
+    theory: Theory,
+    foreground_sort: Sort,
+    lemma_language: Language,
+    term_depth: int,
+    formula_depth: int,
+    additional_free_vars: int,
+) -> Dict[RelationSymbol, Formula]:
     fixpoint_relation_symbols = []
 
     for sentence in theory.sentences:
@@ -16,25 +23,28 @@ def get_lemma_template(theory: Theory, lemma_language: Language, term_depth: int
             fixpoint_relation_symbols.append(sentence.relation_symbol)
 
     templates: Dict[RelationSymbol, Formula] = {} # template for each fixpoint relation
+    free_vars = tuple(Variable(f"x{i}", foreground_sort) for i in range(additional_free_vars))
 
-    free_var_index = 0
+    free_var_index = additional_free_vars
 
     for relation_symbol in fixpoint_relation_symbols:
-        free_vars = []
+        arguments = []
 
         for sort in relation_symbol.input_sorts:
-            free_vars.append(Variable(f"x{free_var_index}", sort))
+            arguments.append(Variable(f"x{free_var_index}", sort))
             free_var_index += 1
 
         assert relation_symbol not in templates, \
                f"duplicate fixpoint definitions for relation {relation_symbol}"
 
+        rhs: Formula = QuantifierFreeFormulaTemplate(lemma_language, tuple(arguments) + free_vars, term_depth, formula_depth)
+
+        for var in free_vars[::-1]:
+            rhs = UniversalQuantification(var, rhs)
+
         # template for the current relation:
         # R(x) -> phi(x) 
-        templates[relation_symbol] = Implication(
-            RelationApplication(relation_symbol, tuple(free_vars)),
-            QuantifierFreeFormulaTemplate(lemma_language, tuple(free_vars), term_depth, formula_depth),
-        ).quantify_all_free_variables()
+        templates[relation_symbol] = Implication(RelationApplication(relation_symbol, tuple(arguments)), rhs).quantify_all_free_variables()
 
     return templates
 
@@ -176,32 +186,29 @@ def fossil(
     natural_proof_depth: int,
     lemma_term_depth: int,
     lemma_formula_depth: int,
-    true_counterexample_size_bound: int) -> bool:
+    true_counterexample_size_bound: int,
+    additional_free_vars: int = 0, # additional number of free variables (universally quantified) that can appear on the RHS of each lemma
+) -> bool:
     """
     The FOSSIL algorithm with all three types of counterexamples
     """
 
     lemmas: List[Formula] = []
-    lemma_templates = get_lemma_template(theory, lemma_language, lemma_term_depth, lemma_formula_depth)
+    lemma_templates = get_lemma_template(theory, foreground_sort, lemma_language, lemma_term_depth, lemma_formula_depth, additional_free_vars)
     lemma_union_template = UnionFormulaTemplate(*lemma_templates.values()) # union of all lemma templates for each relation
 
     type2_models: List[Structure] = []
     # type3_models: List[Tuple[Structure, RelationSymbol]] = []
 
-    update_template = True
-
     with smt.Solver(name="z3") as synth_solver:
+        synth_solver.add_assertion(lemma_union_template.get_constraint())
+
+        # the lemma should not be approximately FO provable
+        fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=2)
+        synth_solver.add_assertion(fo_provable_counterexample.get_constraint())
+        synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(fo_provable_counterexample, {})))
+
         while True:
-            if update_template:
-                synth_solver.add_assertion(lemma_union_template.get_constraint())
-
-                # the lemma should not be approximately FO provable
-                # fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=2)
-                # synth_solver.add_assertion(fo_provable_counterexample.get_constraint())
-                # synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(fo_provable_counterexample, {})))
-  
-                update_template = False
-
             validity, extended_language, conjuncts = check_validity(theory.extend_axioms(lemmas), foreground_sort, goal, natural_proof_depth)
 
             if validity:
@@ -232,23 +239,18 @@ def fossil(
                             # obtaint a concrete lemma
                             lemma = lemma_union_template.get_from_smt_model(synth_solver.get_model())
                         else:
-                            print("### no more lemma is possible, increasing depths")
-                            lemma_term_depth += 1
-                            lemma_formula_depth += 1
-                            # natural_proof_depth += 1
-
-                            lemma_templates = get_lemma_template(theory, lemma_language, lemma_term_depth, lemma_formula_depth)
-                            lemma_union_template = UnionFormulaTemplate(*lemma_templates.values())
-                            update_template = True
-                            break
+                            print("### lemmas are exhausted")
+                            return False
                     
                     print(f"synthesized lemma {lemma}")
 
                     # check if the PFP of the lemma is FO-valid under the theory and other lemmas
                     # TODO: check the types
                     lemma_pfp = get_pfp(theory, lemma)
-                    # .extend_axioms(lemmas) TODO: i'm using independent lemmas for now
-                    validity, extended_language, conjuncts = check_validity(theory, foreground_sort, lemma_pfp, natural_proof_depth)
+                    print(lemma_pfp)
+
+                    # sequential lemmas
+                    validity, extended_language, conjuncts = check_validity(theory.extend_axioms(lemmas), foreground_sort, lemma_pfp, natural_proof_depth)
 
                     if validity:
                         # valid lemma, add it to the list
@@ -316,20 +318,20 @@ assert sort_pointer is not None
 #     true_counterexample_size_bound=6,
 # )
 
-fossil(
-    theory,
-    sort_pointer,
-    theory.language.get_sublanguage(
-        ("Pointer",),
-        ("nil", "n"),
-        ("list", "lseg", "eq"),
-    ),
-    Parser.parse_formula(theory.language, f"forall x: Pointer. lseg(x, nil()) -> list(x)"),
-    natural_proof_depth=1,
-    lemma_term_depth=0,
-    lemma_formula_depth=1,
-    true_counterexample_size_bound=6,
-)
+# fossil(
+#     theory,
+#     sort_pointer,
+#     theory.language.get_sublanguage(
+#         ("Pointer",),
+#         ("nil", "n"),
+#         ("list", "lseg", "eq"),
+#     ),
+#     Parser.parse_formula(theory.language, f"forall x: Pointer. lseg(x, nil()) -> list(x)"),
+#     natural_proof_depth=1,
+#     lemma_term_depth=0,
+#     lemma_formula_depth=1,
+#     true_counterexample_size_bound=6,
+# )
 
 # fossil(
 #     theory,
@@ -337,11 +339,68 @@ fossil(
 #     theory.language.get_sublanguage(
 #         ("Pointer",),
 #         ("nil", "n"),
-#         ("list", "lseg"),
+#         ("list", "lseg", "in_lseg"),
 #     ),
-#     Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> lseg(x, z)"),
+#     Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> not in_lseg(x, n(x), z)"),
 #     natural_proof_depth=1,
-#     lemma_term_depth=1,
+#     lemma_term_depth=0,
+#     lemma_formula_depth=2,
+#     true_counterexample_size_bound=5,
+#     additional_free_vars=1,
+# )
+
+# fossil(
+#     theory,
+#     sort_pointer,
+#     theory.language.get_sublanguage(
+#         ("Pointer",),
+#         ("nil", "n"),
+#         ("lseg", "in_lseg"),
+#     ),
+#     Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. in_lseg(x, y, z) /\ lseg(y, z) -> lseg(x, z)"),
+#     natural_proof_depth=1,
+#     lemma_term_depth=0,
 #     lemma_formula_depth=1,
 #     true_counterexample_size_bound=5,
+#     additional_free_vars=1,
 # )
+
+
+# 6 min
+# fossil(
+#     theory.remove_fixpoint_definition("list"),
+#     sort_pointer,
+#     theory.language.get_sublanguage(
+#         ("Pointer",),
+#         (),
+#         ("lseg", "in_lseg"),
+#     ),
+#     Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. in_lseg(x, y, z) /\ lseg(y, z) -> lseg(x, z)"),
+#     natural_proof_depth=1,
+#     lemma_term_depth=0,
+#     lemma_formula_depth=1,
+#     true_counterexample_size_bound=4,
+#     additional_free_vars=0,
+# )
+
+# 4m57s
+fossil(
+    theory
+      .remove_fixpoint_definition("list")
+      .extend_axioms((
+        # an extra lemma required
+        Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. in_lseg(x, y, z) /\ lseg(y, z) -> lseg(x, z)"),
+    )),
+    sort_pointer,
+    theory.language.get_sublanguage(
+        ("Pointer",),
+        (),
+        ("lseg",),
+    ),
+    Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> lseg(x, z)"),
+    natural_proof_depth=2,
+    lemma_term_depth=0,
+    lemma_formula_depth=1,
+    true_counterexample_size_bound=4,
+    additional_free_vars=1,
+)

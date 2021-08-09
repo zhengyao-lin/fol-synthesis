@@ -60,38 +60,18 @@ class FixpointDefinition(Sentence):
         elif isinstance(formula, Negation):
             return Negation(self.unfold_in_formula(formula.formula))
 
-        elif isinstance(formula, Conjunction):
-            return Conjunction(
+        elif isinstance(formula, Conjunction) or \
+             isinstance(formula, Disjunction) or \
+             isinstance(formula, Implication) or \
+             isinstance(formula, Equivalence):
+            return type(formula)(
                 self.unfold_in_formula(formula.left),
                 self.unfold_in_formula(formula.right),
             )
 
-        elif isinstance(formula, Disjunction):
-            return Disjunction(
-                self.unfold_in_formula(formula.left),
-                self.unfold_in_formula(formula.right),
-            )
-
-        elif isinstance(formula, Implication):
-            return Implication(
-                self.unfold_in_formula(formula.left),
-                self.unfold_in_formula(formula.right),
-            )
-
-        elif isinstance(formula, Equivalence):
-            return Equivalence(
-                self.unfold_in_formula(formula.left),
-                self.unfold_in_formula(formula.right),
-            )
-
-        elif isinstance(formula, UniversalQuantification):
-            return UniversalQuantification(
-                formula.variable,
-                self.unfold_in_formula(formula.body),
-            )
-
-        elif isinstance(formula, ExistentialQuantification):
-            return ExistentialQuantification(
+        elif isinstance(formula, UniversalQuantification) or \
+             isinstance(formula, ExistentialQuantification):
+            return type(formula)(
                 formula.variable,
                 self.unfold_in_formula(formula.body),
             )

@@ -23,6 +23,32 @@ class Template(Generic[T], ABC):
     def get_from_smt_model(self, model: smt.SMTModel) -> T: ...
 
 
+# class BoundedIntegerVariable(Template[int]):
+#     """
+#     An integer variable with range lower upper
+#     """
+
+#     def __init__(self, lower: int, upper: int):
+#         assert upper >= lower
+#         self.lower = lower
+#         self.upper = upper
+#         self.num_bits = (upper - lower + 1).bit_length()
+#         self.variable = smt.FreshSymbol(typename=smt.BVType(self.num_bits))
+
+#     def get_constraint(self) -> smt.SMTTerm:
+#         # TODO
+#         return smt.TRUE()
+
+#     def get_from_smt_model(self, model: smt.SMTModel) -> int:
+#         return model[self.variable].bv2nat() + self.lower # type: ignore
+
+#     def equals(self, value: int) -> smt.SMTTerm:
+#         return smt.Equals(self.variable, smt.BV(value - self.lower, self.num_bits))
+
+#     def get_range(self) -> Iterable[int]:
+#         return range(self.lower, self.upper + 1)
+
+
 class BoundedIntegerVariable(Template[int]):
     """
     An integer variable with range lower upper

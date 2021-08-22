@@ -1,4 +1,5 @@
 from typing import List, Dict, Iterable, Optional
+from collections import OrderedDict
 
 from fol.base.language import Language, Sort
 from fol.base.syntax import *
@@ -12,6 +13,12 @@ from fol.prover import NaturalProof
 
 
 class FOSSIL:
+    SEED = 0
+
+    @staticmethod
+    def get_solver() -> smt.SMTSolver:
+        return smt.Solver(name="z3", random_seed=FOSSIL.SEED, generate_models=True)
+
     @staticmethod
     def get_lemma_template(
         theory: Theory,
@@ -28,7 +35,7 @@ class FOSSIL:
             sentence.relation_symbol in lemma_language.relation_symbols:
                 fixpoint_relation_symbols.append(sentence.relation_symbol)
 
-        templates: Dict[RelationSymbol, Formula] = {} # template for each fixpoint relation
+        templates: Dict[RelationSymbol, Formula] = OrderedDict() # template for each fixpoint relation
         free_vars = tuple(Variable(f"x{i}", foreground_sort) for i in range(additional_free_vars))
 
         free_var_index = additional_free_vars
@@ -103,11 +110,11 @@ class FOSSIL:
         return FOSSIL.get_induction_obligation(definition, formula)
 
     @staticmethod
-    def check_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[bool, Language, Set[Formula]]:
+    def check_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[bool, Language, Tuple[Formula, ...]]:
         """
         Return if the goal is FO-provable under the given theory
         """
-        with smt.Solver(name="z3") as solver:
+        with FOSSIL.get_solver() as solver:
             extended_language, conjuncts = NaturalProof.encode_validity(theory, foreground_sort, goal, depth)
             model = UninterpretedModelTemplate(extended_language)
 
@@ -126,7 +133,7 @@ class FOSSIL:
         model_size = max_model_size or 5
 
         while True:
-            with smt.Solver(name="z3") as solver:
+            with FOSSIL.get_solver() as solver:
                 if lfp:
                     finite_model: ModelTemplate = FiniteLFPModelTemplate(theory, { foreground_sort: model_size })
                 else:
@@ -157,6 +164,8 @@ class FOSSIL:
         lemma_formula_depth: int,
         true_counterexample_size_bound: int,
         additional_free_vars: int = 0, # additional number of free variables (universally quantified) that can appear on the RHS of each lemma
+        use_non_fo_provable_lemmas: bool = False,
+        use_type1_models: bool = True,
     ) -> bool:
         """
         The FOSSIL algorithm with all three types of counterexamples
@@ -169,13 +178,16 @@ class FOSSIL:
         type2_models: List[Structure] = []
         # type3_models: List[Tuple[Structure, RelationSymbol]] = []
 
-        with smt.Solver(name="z3") as synth_solver:
+        with FOSSIL.get_solver() as synth_solver:
             synth_solver.add_assertion(lemma_union_template.get_constraint())
 
-            # the lemma should not be approximately FO provable
-            # fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=2)
-            # synth_solver.add_assertion(fo_provable_counterexample.get_constraint())
-            # synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(fo_provable_counterexample, {})))
+            if use_non_fo_provable_lemmas:
+                # enforcing that the lemma should not be approximately FO provable
+                fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=2) # TODO: depth
+                synth_solver.add_assertion(fo_provable_counterexample.get_constraint())
+                synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(fo_provable_counterexample, {})))
+            else:
+                fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=0) # TODO: depth
 
             while True:
                 validity, extended_language, conjuncts = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, goal, natural_proof_depth)
@@ -188,28 +200,47 @@ class FOSSIL:
                 # for lemma in lemmas:
                 #     print(f"- {lemma}")
 
-                type1_model = FOSSIL.generate_finite_example(Theory(extended_language, ()), foreground_sort, conjuncts)
-                assert type1_model is not None
+                if use_type1_models:
+                    type1_model = FOSSIL.generate_finite_example(Theory(extended_language, ()), foreground_sort, conjuncts)
 
                 # print("*** found type 1 model")
 
                 with smt.push_solver(synth_solver):
+                    if use_type1_models:
+                        assert type1_model is not None
+                        synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(type1_model, {})))
 
                     # only type 2 models are accumulated across synthesis of different lemmas
                     for type2_model in type2_models:
                         synth_solver.add_assertion(lemma_union_template.interpret(type2_model, {}))
 
+                    # the new lemma should not be implied by the old ones
+                    if not use_type1_models:
+                        # if we don't use type 1 models, we need the following constraints
+                        # to avoid duplicate lemmas
+                        if use_non_fo_provable_lemmas:
+                            # in this case such constraint can be simplified
+                            for lemma in lemmas:
+                                synth_solver.add_assertion(lemma.interpret(fo_provable_counterexample, {}))
+                        else:
+                            synth_solver.add_assertion(smt.Not(
+                                smt.Implies(
+                                    smt.And(
+                                        lemma.interpret(fo_provable_counterexample, {})
+                                        for lemma in lemmas
+                                    ),
+                                    lemma_union_template.interpret(fo_provable_counterexample, {}),
+                                ),
+                            ))
+
                     # try to synthesize a valid lemma
                     while True:
-                        with smt.push_solver(synth_solver):
-                            synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(type1_model, {})))
-                            
-                            if synth_solver.solve():
-                                # obtaint a concrete lemma
-                                lemma = lemma_union_template.get_from_smt_model(synth_solver.get_model())
-                            else:
-                                print(f"### lemmas are exhausted, unprovable: {goal}")
-                                return False
+                        if synth_solver.solve():
+                            # obtaint a concrete lemma
+                            lemma = lemma_union_template.get_from_smt_model(synth_solver.get_model())
+                        else:
+                            print(f"### lemmas are exhausted, unprovable: {goal}")
+                            return False
                         
                         print(f"### synthesized lemma {lemma}", end="", flush=True)
 

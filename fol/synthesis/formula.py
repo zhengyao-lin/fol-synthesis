@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Tuple, Mapping, Callable, Optional, Dict, overload
+from collections import OrderedDict
 
 from fol.smt import smt
 from fol.base.syntax import *
@@ -19,7 +20,7 @@ class TermTemplate(Term):
         self.depth = depth
         self.sort = sort
         
-        self.substitution: Dict[Variable, Term] = { var: var for var in self.free_vars }
+        self.substitution: Dict[Variable, Term] = OrderedDict({ var: var for var in self.free_vars })
 
         self.node = BoundedIntegerVariable(0, len(self.free_vars) + len(self.language.function_symbols))
 

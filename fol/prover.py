@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Tuple, Set, Optional
+from typing import Tuple, Optional, Dict
 from enum import Enum
+from collections import OrderedDict
 
 import itertools
 
@@ -257,7 +258,7 @@ class NaturalProof:
         foreground_sort: Sort,
         formulas: Tuple[Formula, ...],
         depth: int,
-    ) -> Set[Formula]:
+    ) -> Tuple[Formula, ...]:
         """
         Do term instantiation up to depth <depth> and returns the list of (quantifier free) concrete formulas
 
@@ -267,18 +268,19 @@ class NaturalProof:
 
         assert foreground_sort.smt_hook is None
 
-        ground_terms: Set[Term] = set()
-        instantiated_formulas: Set[Formula] = set()
+        ground_terms: Dict[Term, None] = OrderedDict()
+        instantiated_formulas: Dict[Formula, None] = OrderedDict()
 
         # try to find ground terms in the language
         for function_symbol in language.function_symbols:
             if function_symbol.output_sort == foreground_sort and \
             len(function_symbol.input_sorts) == 0:
-                ground_terms.add(Application(function_symbol, ()))
+                ground_terms[Application(function_symbol, ())] = None
 
         if len(ground_terms) == 0:
             for formula in formulas:
-                ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, formula))
+                for ground_term in NaturalProof.get_all_ground_terms(foreground_sort, formula):
+                    ground_terms[ground_term] = None
 
         assert len(ground_terms) != 0, \
                f"the given language does not have a ground term of sort {foreground_sort}"
@@ -290,26 +292,27 @@ class NaturalProof:
 
             # use previous ground terms to instantiate new formulas
             for formula in formulas:
-                free_vars = tuple(var for var in formula.get_free_variables() if var.sort == foreground_sort)
+                free_vars = sorted(tuple(var for var in formula.get_free_variables() if var.sort == foreground_sort))
 
-                ordered_ground_terms = tuple(ground_terms)
+                ordered_ground_terms = tuple(ground_terms.keys())
 
                 for assignment in itertools.product(ordered_ground_terms, repeat=len(free_vars)):
                     substitution = dict(zip(free_vars, assignment))
                     instantiated_formula = formula.substitute(substitution)
-                    instantiated_formulas.add(instantiated_formula)
+                    instantiated_formulas[instantiated_formula] = None
 
                     # add new ground terms
-                    ground_terms.update(NaturalProof.get_all_ground_terms(foreground_sort, instantiated_formula))
+                    for ground_term in NaturalProof.get_all_ground_terms(foreground_sort, instantiated_formula):
+                        ground_terms[ground_term] = None
 
             # already converged
             if len(instantiated_formulas) == previous_size:
-                return instantiated_formulas
+                return tuple(instantiated_formulas.keys())
 
-        return instantiated_formulas
+        return tuple(instantiated_formulas.keys())
 
     @staticmethod
-    def encode_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[Language, Set[Formula]]:
+    def encode_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[Language, Tuple[Formula, ...]]:
         """
         Reduce the FO-validity of the formula in the given theory (i.e. whether theory |= formula)
         to the unsatisfiability of the returned conjunction of quantifier free, concrete formulas.

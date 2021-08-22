@@ -1,4 +1,5 @@
 from typing import Mapping, Dict, Optional
+from collections import OrderedDict
 
 from fol.smt import smt
 
@@ -28,9 +29,9 @@ class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
         If default_sort is None, fresh uninterpreted SMT sorts will be used for each uninterpreted sort in the language
         """
 
-        carriers: Dict[Sort, CarrierSet] = {}
-        function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = {}
-        relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = {}
+        carriers: Dict[Sort, CarrierSet] = OrderedDict()
+        function_interpretations: Dict[FunctionSymbol, smt.SMTFunction] = OrderedDict()
+        relation_interpretations: Dict[RelationSymbol, smt.SMTFunction] = OrderedDict()
 
         for sort in language.sorts:
             if sort.smt_hook is None:
@@ -59,8 +60,8 @@ class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
         """
         Concretize all functions
         """
-        concrete_functions = {}
-        concrete_relations = {}
+        concrete_functions = OrderedDict()
+        concrete_relations = OrderedDict()
 
         # construct new function interpretations
         for function_symbol in self.language.function_symbols:
@@ -146,9 +147,9 @@ class FiniteFOModelTemplate(UninterpretedModelTemplate):
 
         uninterp_structure = super().get_from_smt_model(model)
 
-        concrete_carriers = {}
-        concrete_functions = {}
-        concrete_relations = {}
+        concrete_carriers = OrderedDict()
+        concrete_functions = OrderedDict()
+        concrete_relations = OrderedDict()
 
         for sort in self.theory.language.sorts:
             if sort.smt_hook is None:
@@ -188,7 +189,7 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
     def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
         super().__init__(theory, size_bounds)
 
-        self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = {}
+        self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = OrderedDict()
 
         # for any fixpoint definition, add a rank function
         for sentence in theory.sentences:
@@ -235,7 +236,7 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
 
         # state the rank invariant
         # TODO: slightly hacky
-        valuation = { k: v for k, v in zip(definition.variables, smt_input_vars) }
+        valuation = OrderedDict({ k: v for k, v in zip(definition.variables, smt_input_vars) })
 
         # interpret the definition but with the relation R(...) replaced by
         # f(...) < f(x)  /\ R(...)
@@ -274,7 +275,7 @@ class FOProvableModelTemplate(UninterpretedModelTemplate):
         self.theory = theory
 
         # unfold LFP definitions
-        overrides = {}
+        overrides = OrderedDict()
         for sentence in theory.sentences:
             if isinstance(sentence, FixpointDefinition):
                 unfolded_definition = sentence.unfold_definition(unfold_depth)
@@ -297,15 +298,15 @@ class FOProvableModelTemplate(UninterpretedModelTemplate):
         """
         Interpret the fixpoint definition in the current structure as an SMT function
         """
-        valuation = {
+        valuation = OrderedDict({
             var: smt.FreshSymbol(self.get_smt_sort(var.sort))
             for var in definition.variables
-        }
+        })
         smt_formula = definition.definition.interpret(self, valuation)
 
         def interp(*args: smt.SMTTerm) -> smt.SMTTerm:
             assert len(args) == len(definition.variables)
-            substitution = { valuation[k]: v for k, v in zip(definition.variables, args) }
+            substitution = OrderedDict({ valuation[k]: v for k, v in zip(definition.variables, args) })
             return smt_formula.substitute(substitution) # substitution on the SMT formula
 
         return interp

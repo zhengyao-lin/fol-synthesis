@@ -1,5 +1,16 @@
+from typing import Callable, Any
+
+import sys
+import time
+
 from fol import *
 from fol.fossil import FOSSIL
+
+
+def time_fn(f: Callable[..., Any]) -> None:
+    begin = time.time()
+    f()
+    print(f"elapsed: {time.time() - begin} s", file=sys.stderr, flush=True)
 
 
 theory = Parser.parse_theory(r"""
@@ -22,48 +33,69 @@ end
 sort_pointer = theory.language.get_sort("Pointer")
 assert sort_pointer is not None
 
-FOSSIL.prove_lfp(
-    theory,
-    sort_pointer,
-    theory.language.get_sublanguage(
-        ("Pointer",),
-        ("nil", "n"),
-        ("list", "lseg"),
-    ),
-    Parser.parse_formula(theory.language, r"forall x: Pointer. list(x) -> lseg(x, nil())"),
-    natural_proof_depth=1,
-    lemma_term_depth=0,
-    lemma_formula_depth=0,
-    true_counterexample_size_bound=6,
-)
+params = {
+    # "use_type1_models": False,
+    # "use_non_fo_provable_lemmas": True,
+}
 
-FOSSIL.prove_lfp(
-    theory,
-    sort_pointer,
-    theory.language.get_sublanguage(
-        ("Pointer",),
-        ("nil", "n"),
-        ("list", "lseg", "eq"),
-    ),
-    Parser.parse_formula(theory.language, r"forall x: Pointer. lseg(x, nil()) -> list(x)"),
-    natural_proof_depth=1,
-    lemma_term_depth=0,
-    lemma_formula_depth=1,
-    true_counterexample_size_bound=6,
-)
+for i, params in enumerate([
+    {},
+    # { "use_type1_models": False },
+    # { "use_type1_models": False, "use_non_fo_provable_lemmas": True },
+]):
+    for seed in range(10):
+        FOSSIL.SEED = seed
 
-FOSSIL.prove_lfp(
-    theory.remove_fixpoint_definition("list"),
-    sort_pointer,
-    theory.language.get_sublanguage(
-        ("Pointer",),
-        (),
-        ("lseg",),
-    ),
-    Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> lseg(x, z)"),
-    natural_proof_depth=2,
-    lemma_term_depth=0,
-    lemma_formula_depth=1,
-    true_counterexample_size_bound=4,
-    additional_free_vars=1,
-)
+        print(f"param {i}, seed {seed}", file=sys.stderr, flush=True)
+
+        time_fn(lambda:
+        FOSSIL.prove_lfp(
+            theory,
+            sort_pointer,
+            theory.language.get_sublanguage(
+                ("Pointer",),
+                ("nil", "n"),
+                ("list", "lseg"),
+            ),
+            Parser.parse_formula(theory.language, r"forall x: Pointer. list(x) -> lseg(x, nil())"),
+            natural_proof_depth=1,
+            lemma_term_depth=0,
+            lemma_formula_depth=0,
+            true_counterexample_size_bound=6,
+            **params,
+        ))
+
+        time_fn(lambda:
+        FOSSIL.prove_lfp(
+            theory,
+            sort_pointer,
+            theory.language.get_sublanguage(
+                ("Pointer",),
+                ("nil", "n"),
+                ("list", "lseg", "eq"),
+            ),
+            Parser.parse_formula(theory.language, r"forall x: Pointer. lseg(x, nil()) -> list(x)"),
+            natural_proof_depth=1,
+            lemma_term_depth=0,
+            lemma_formula_depth=1,
+            true_counterexample_size_bound=6,
+            **params,
+        ))
+
+        time_fn(lambda:
+        FOSSIL.prove_lfp(
+            theory.remove_fixpoint_definition("list"),
+            sort_pointer,
+            theory.language.get_sublanguage(
+                ("Pointer",),
+                (),
+                ("lseg",),
+            ),
+            Parser.parse_formula(theory.language, r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> lseg(x, z)"),
+            natural_proof_depth=2,
+            lemma_term_depth=0,
+            lemma_formula_depth=1,
+            true_counterexample_size_bound=4,
+            additional_free_vars=1,
+            **params,
+        ))

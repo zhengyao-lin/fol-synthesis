@@ -4,9 +4,10 @@ Syntax of many-sorted first-order logic
 
 from __future__ import annotations
 
-from typing import TypeVar, Generic, Tuple, Union, Mapping, Set
+from typing import TypeVar, Generic, Tuple, Union, Mapping, Set, Any
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 
 from fol.smt import smt
 from fol.synthesis.template import Template
@@ -36,6 +37,10 @@ class Term(BaseAST, Template["Term"], Interpretable["Term"], ABC):
     def get_sort(self) -> Sort:
         raise NotImplementedError()
 
+    def __lt__(self, other: Any) -> bool:
+        # TODO
+        return str(self) <= str(other)
+
 
 class Formula(BaseAST, Template["Formula"], Interpretable["Formula"], ABC):
     def equals(self, value: Formula) -> smt.SMTTerm:
@@ -55,6 +60,10 @@ class Formula(BaseAST, Template["Formula"], Interpretable["Formula"], ABC):
 
     def __hash__(self) -> int:
         raise NotImplementedError()
+
+    def __lt__(self, other: Any) -> bool:
+        # TODO
+        return str(self) <= str(other)
 
 
 @dataclass(frozen=True)
@@ -449,7 +458,11 @@ class UniversalQuantification(Formula):
     def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         carrier = structure.interpret_sort(self.variable.sort)
         smt_var = smt.FreshSymbol(carrier.get_smt_sort())
-        interp = self.body.interpret(structure, { **valuation, self.variable: smt_var })
+
+        new_valuation = OrderedDict(valuation)
+        new_valuation[self.variable] = smt_var
+        interp = self.body.interpret(structure, new_valuation)
+
         return carrier.universally_quantify(smt_var, interp)
 
     def get_constraint(self) -> smt.SMTTerm:
@@ -490,7 +503,11 @@ class ExistentialQuantification(Formula):
     def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         carrier = structure.interpret_sort(self.variable.sort)
         smt_var = smt.FreshSymbol(carrier.get_smt_sort())
-        interp = self.body.interpret(structure, { **valuation, self.variable: smt_var })
+
+        new_valuation = OrderedDict(valuation)
+        new_valuation[self.variable] = smt_var
+        interp = self.body.interpret(structure, new_valuation)
+
         return carrier.existentially_quantify(smt_var, interp)
 
     def get_constraint(self) -> smt.SMTTerm:

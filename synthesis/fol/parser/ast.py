@@ -4,8 +4,7 @@ Extending the syntax tree of FOL to include some temporary parsing constructs
 
 from typing import Tuple, Mapping, Optional, TypeVar, Generic
 
-from fol.base.syntax import *
-from fol.base.theory import *
+from ..base import *
 
 
 _T = TypeVar("_T")

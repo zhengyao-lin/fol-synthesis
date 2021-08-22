@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 
-from fol.smt import smt
-from fol.synthesis.template import Template
+from synthesis.smt import smt
+from synthesis.template import Template
 
 from .language import BaseAST, Sort, FunctionSymbol, RelationSymbol, Language
 from .semantics import Structure

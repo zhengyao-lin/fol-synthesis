@@ -6,9 +6,7 @@ from collections import OrderedDict
 
 import itertools
 
-from fol.base.language import Language, Sort
-from fol.base.syntax import *
-from fol.base.theory import Theory, Axiom, FixpointDefinition
+from .base import *
 
 
 class QuantifierKind(Enum):

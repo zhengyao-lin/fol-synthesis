@@ -3,8 +3,8 @@ from typing import Callable, Any
 import sys
 import time
 
-from fol import *
-from fol.fossil import FOSSIL
+from synthesis import *
+from synthesis.fol.fossil import FOSSIL
 
 
 def time_fn(f: Callable[..., Any]) -> None:
@@ -32,31 +32,27 @@ theory LIST
 end
 """)
 
-sort_pointer = theory.language.get_sort("Pointer")
-assert sort_pointer is not None
+sort_pointer_opt = theory.language.get_sort("Pointer")
+assert sort_pointer_opt is not None
+sort_pointer: Sort = sort_pointer_opt
 
-for i, params in enumerate([
-    {},
-    { "use_type1_models": False },
-    { "use_type1_models": False, "use_non_fo_provable_lemmas": True },
-]):
-    for seed in range(10):
-        FOSSIL.SEED = seed
+params = {
+    "use_type1_models": False,
+    "use_non_fo_provable_lemmas": True,
+}
 
-        print(f"param {i} seed {seed}", file=sys.stderr, flush=True)
-
-        time_fn(lambda: FOSSIL.prove_lfp(
-            theory,
-            sort_pointer,
-            theory.language.get_sublanguage(
-                ("Pointer",),
-                ("nil", "n"),
-                ("list", "even_list", "odd_list"),
-            ),
-            Parser.parse_formula(theory.language, r"forall x: Pointer. list(x) -> even_list(x) \/ odd_list(x)"),
-            natural_proof_depth=1,
-            lemma_term_depth=0,
-            lemma_formula_depth=1,
-            true_counterexample_size_bound=5,
-            **params,
-        ))
+time_fn(lambda: FOSSIL.prove_lfp(
+    theory,
+    sort_pointer,
+    theory.language.get_sublanguage(
+        ("Pointer",),
+        ("nil", "n"),
+        ("list", "even_list", "odd_list"),
+    ),
+    Parser.parse_formula(theory.language, r"forall x: Pointer. list(x) -> even_list(x) \/ odd_list(x)"),
+    natural_proof_depth=1,
+    lemma_term_depth=0,
+    lemma_formula_depth=1,
+    true_counterexample_size_bound=5,
+    **params,
+))

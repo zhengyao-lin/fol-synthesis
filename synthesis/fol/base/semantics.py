@@ -7,7 +7,7 @@ from typing import Tuple, Mapping
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
-from fol.smt import smt
+from synthesis.smt import smt
 
 from .language import Sort, FunctionSymbol, RelationSymbol, Language
 

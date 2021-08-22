@@ -1,4 +1,5 @@
-from fol import *
+from synthesis import *
+from synthesis.fol.cegis import CEGISynthesizer
 
 
 group_theory = Parser.parse_theory(r"""

@@ -1,6 +1,6 @@
 from typing import Any
 
-from fol import *
+from synthesis import *
 
 
 sort_a = Sort("A")

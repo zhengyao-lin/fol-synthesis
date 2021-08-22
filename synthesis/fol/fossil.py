@@ -1,15 +1,13 @@
 from typing import List, Dict, Iterable, Optional
 from collections import OrderedDict
 
-from fol.base.language import Language, Sort
-from fol.base.syntax import *
-from fol.base.theory import Theory, Axiom, FixpointDefinition
+from .base import *
 
-from fol.synthesis.formula import QuantifierFreeFormulaTemplate, UnionFormulaTemplate
-from fol.synthesis.model import ModelTemplate, UninterpretedModelTemplate, FiniteFOModelTemplate, FiniteLFPModelTemplate, FOProvableModelTemplate
+from .templates import QuantifierFreeFormulaTemplate, UnionFormulaTemplate, ModelTemplate, \
+                       UninterpretedModelTemplate, FiniteFOModelTemplate, FiniteLFPModelTemplate, FOProvableModelTemplate
 
-from fol.utils import FOLUtils
-from fol.prover import NaturalProof
+from .utils import FOLUtils
+from .prover import NaturalProof
 
 
 class FOSSIL:

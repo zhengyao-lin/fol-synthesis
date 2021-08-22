@@ -1,4 +1,4 @@
-from fol import *
+from synthesis import *
 
 from .base import TestCase
 

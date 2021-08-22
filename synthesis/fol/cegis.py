@@ -2,12 +2,10 @@ from typing import Any, Tuple, Generator, List
 
 from contextlib import contextmanager
 
-from fol.smt import smt
+from synthesis.smt import smt
 
-from fol.base.syntax import Formula
-from fol.base.semantics import Structure
-
-from .model import ModelTemplate
+from .base import *
+from .templates import ModelTemplate
 
 
 class CEGISynthesizer:

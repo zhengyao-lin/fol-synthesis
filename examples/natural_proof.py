@@ -1,5 +1,5 @@
-from fol import *
-from fol.prover import *
+from synthesis import *
+from synthesis.fol.prover import NaturalProof
 
 
 theory = Parser.parse_theory(r"""

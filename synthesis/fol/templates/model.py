@@ -1,12 +1,10 @@
 from typing import Mapping, Dict, Optional
 from collections import OrderedDict
 
-from fol.smt import smt
+from synthesis.smt import smt
+from synthesis.template import Template
 
-from fol.base.semantics import *
-from fol.base.theory import *
-
-from .template import Template
+from ..base import *
 
 
 class ModelTemplate(Template[Structure], Structure):

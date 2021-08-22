@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Tuple, Mapping, Callable, Optional, Dict, overload
 from collections import OrderedDict
 
-from fol.smt import smt
-from fol.base.syntax import *
+from synthesis.smt import smt
+from synthesis.template import Template, BoundedIntegerVariable, UnionTemplate
 
-from .template import Template, BoundedIntegerVariable, UnionTemplate
+from ..base import *
 
 
 class TermTemplate(Term):

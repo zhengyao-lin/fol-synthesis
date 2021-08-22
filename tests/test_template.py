@@ -14,7 +14,7 @@ TODO:
 11. substitution with templates (i.e. substitute variables with templates)
 """
 
-from fol import *
+from synthesis import *
 
 from .base import TestCase
 

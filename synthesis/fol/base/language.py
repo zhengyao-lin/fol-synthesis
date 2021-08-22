@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any, Tuple, Optional, Iterable
 from dataclasses import dataclass
 
-from fol.smt import smt
+from synthesis.smt import smt
 
 
 class BaseAST: ...

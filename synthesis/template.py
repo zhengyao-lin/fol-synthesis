@@ -2,7 +2,7 @@ from typing import TypeVar, Generic, Iterable, Tuple
 
 from abc import ABC, abstractmethod
 
-from fol.smt import smt
+from .smt import smt
 
 
 T = TypeVar("T")

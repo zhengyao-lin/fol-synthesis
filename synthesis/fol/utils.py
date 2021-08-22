@@ -1,4 +1,4 @@
-from fol.base.syntax import *
+from .base import *
 
 
 class FOLUtils:

@@ -2,7 +2,7 @@ from typing import TypeVar, Set
 
 import unittest
 
-from fol import *
+from synthesis import *
 
 
 S = TypeVar("S")

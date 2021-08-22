@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from synthesis.smt import smt
 
 from .base import *
-from .templates import ModelTemplate
+from .templates import StructureTemplate
 
 
 class CEGISynthesizer:
@@ -25,8 +25,8 @@ class CEGISynthesizer:
     def synthesize_for_model_classes(
         self,
         templates: Tuple[Formula, ...],
-        trivial_model: ModelTemplate,
-        goal_model: ModelTemplate,
+        trivial_model: StructureTemplate,
+        goal_model: StructureTemplate,
         *_: Any,
         solver_name: str = "z3",
     ) -> Generator[Formula, None, None]:
@@ -42,7 +42,7 @@ class CEGISynthesizer:
         added back to the first round as an additional constraint
 
         e.g. to synthesize formulas true in all bounded finite LFP models but not in all FO model,
-        we can take C_1 to be FOProvableStructure and C_2 to be FiniteLFPModelTemplate
+        we can take C_1 to be FOProvableStructure and C_2 to be FiniteLFPStructureTemplate
 
         e.g. to synthesize formulas true in a FO theory T but not in a FO subtheory T'
         we can take C_1 to be FOProvableStructure(T') and C_2 to be FOProvableStructure(T)

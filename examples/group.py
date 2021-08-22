@@ -54,10 +54,10 @@ assert sort_group is not None
 x = Variable("x", sort_group)
 y = Variable("y", sort_group)
 
-# trivial_model = UninterpretedModelTemplate(group_theory.language, smt.INT)
+# trivial_model = UninterpretedStructureTemplate(group_theory.language, smt.INT)
 trivial_model = FiniteLFPModelTemplate(group_theory, size_bounds={ sort_group: 8 })
-# trivial_model = FOProvableModelTemplate(group_theory, 0)
-# goal_model = FOProvableModelTemplate(theory, 0)
+# trivial_model = FOProvableStructureTemplate(group_theory, 0)
+# goal_model = FOProvableStructureTemplate(theory, 0)
 goal_model = FiniteLFPModelTemplate(ab_group_theory, size_bounds={ sort_group: 8 })
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(

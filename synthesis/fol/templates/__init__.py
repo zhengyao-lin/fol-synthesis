@@ -1,2 +1,2 @@
 from .formula import *
-from .model import *
+from .structure import *

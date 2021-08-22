@@ -53,7 +53,7 @@ template = Implication(
     AtomicFormulaTemplate(language, (x, y, z), 0),
 )
 
-trivial_model = FOProvableModelTemplate(theory, unfold_depth=2)
+trivial_model = FOProvableStructureTemplate(theory, unfold_depth=2)
 goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 })
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(

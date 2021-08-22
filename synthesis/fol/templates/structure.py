@@ -7,7 +7,7 @@ from synthesis.template import Template
 from ..base import *
 
 
-class ModelTemplate(Template[Structure], Structure):
+class StructureTemplate(Template[Structure], Structure):
     """
     A model variable can act as a structure, i.e. a formula can be
     interpreted in it, but at the same time it can be used as
@@ -15,7 +15,7 @@ class ModelTemplate(Template[Structure], Structure):
     """
 
 
-class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
+class UninterpretedStructureTemplate(SymbolicStructure, StructureTemplate):
     """
     A structure in which all uninterpreted sorts are assigned
     the carrier <default_sort> and all uninterpreted functions/relations
@@ -81,7 +81,7 @@ class UninterpretedModelTemplate(SymbolicStructure, ModelTemplate):
         raise NotImplementedError()
 
 
-class FiniteFOModelTemplate(UninterpretedModelTemplate):
+class FiniteFOModelTemplate(UninterpretedStructureTemplate):
     """
     A variable/template for a FO model of a given theory
     in which all interpreted sorts have finite domains
@@ -260,7 +260,7 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
         return smt.And(non_negative_constraint, rank_invariant)
 
 
-class FOProvableModelTemplate(UninterpretedModelTemplate):
+class FOProvableStructureTemplate(UninterpretedStructureTemplate):
     """
     A structure such that in a theory with fixpoint definitions,
     if a formula phi is FO-provable with <unfold_depth> unfoldings of the

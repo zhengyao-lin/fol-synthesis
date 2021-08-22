@@ -3,8 +3,15 @@ from collections import OrderedDict
 
 from .base import *
 
-from .templates import QuantifierFreeFormulaTemplate, UnionFormulaTemplate, ModelTemplate, \
-                       UninterpretedModelTemplate, FiniteFOModelTemplate, FiniteLFPModelTemplate, FOProvableModelTemplate
+from .templates import (
+    QuantifierFreeFormulaTemplate,
+    UnionFormulaTemplate,
+    StructureTemplate,
+    UninterpretedStructureTemplate,
+    FiniteFOModelTemplate,
+    FiniteLFPModelTemplate,
+    FOProvableStructureTemplate,
+)
 
 from .utils import FOLUtils
 from .prover import NaturalProof
@@ -114,7 +121,7 @@ class FOSSIL:
         """
         with FOSSIL.get_solver() as solver:
             extended_language, conjuncts = NaturalProof.encode_validity(theory, foreground_sort, goal, depth)
-            model = UninterpretedModelTemplate(extended_language)
+            model = UninterpretedStructureTemplate(extended_language)
 
             solver.add_assertion(model.get_constraint())
 
@@ -133,7 +140,7 @@ class FOSSIL:
         while True:
             with FOSSIL.get_solver() as solver:
                 if lfp:
-                    finite_model: ModelTemplate = FiniteLFPModelTemplate(theory, { foreground_sort: model_size })
+                    finite_model: StructureTemplate = FiniteLFPModelTemplate(theory, { foreground_sort: model_size })
                 else:
                     finite_model = FiniteFOModelTemplate(theory, { foreground_sort: model_size })
 
@@ -181,11 +188,11 @@ class FOSSIL:
 
             if use_non_fo_provable_lemmas:
                 # enforcing that the lemma should not be approximately FO provable
-                fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=2) # TODO: depth
+                fo_provable_counterexample = FOProvableStructureTemplate(theory, unfold_depth=2) # TODO: depth
                 synth_solver.add_assertion(fo_provable_counterexample.get_constraint())
                 synth_solver.add_assertion(smt.Not(lemma_union_template.interpret(fo_provable_counterexample, {})))
             else:
-                fo_provable_counterexample = FOProvableModelTemplate(theory, unfold_depth=0) # TODO: depth
+                fo_provable_counterexample = FOProvableStructureTemplate(theory, unfold_depth=0) # TODO: depth
 
             while True:
                 validity, extended_language, conjuncts = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, goal, natural_proof_depth)

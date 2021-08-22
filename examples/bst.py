@@ -63,7 +63,7 @@ assert sort_pointer is not None
 
 x = Variable("x", sort_pointer)
 
-trivial_model = FOProvableModelTemplate(theory, unfold_depth=2)
+trivial_model = FOProvableStructureTemplate(theory, unfold_depth=2)
 goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 5 })
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(

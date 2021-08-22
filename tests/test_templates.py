@@ -19,7 +19,7 @@ from synthesis import *
 from .base import TestCase
 
 
-class TestTemplate(TestCase):
+class TestFormulaTemplates(TestCase):
     def test_template_substitution(self) -> None:
         sort_a = Sort("A")
 

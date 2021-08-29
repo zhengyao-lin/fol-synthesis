@@ -322,7 +322,7 @@ class QuantifierFreeFormulaTemplate(Formula):
     def get_constructor_and_arity(self, node_value: int) -> Tuple[Callable[..., Formula], int]:
         return {
             # 0 for null
-            # 1 for root
+            # 1 for leaf
             2: (Conjunction, 2),
             3: (Disjunction, 2),
             4: (Negation, 1),

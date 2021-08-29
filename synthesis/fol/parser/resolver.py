@@ -185,14 +185,10 @@ class SymbolResolver(CopyVisitor):
         if variable.sort is None:
             return variable
         sort = self.language.get_sort(variable.sort)
-        assert sort is not None, \
-               f"sort {sort} is not defined"
         return Variable(variable.name, sort)
 
     def visit_unresolved_application(self, application: UnresolvedApplication) -> Application:
         symbol = self.language.get_function_symbol(application.name)
-        assert symbol is not None, \
-               f"function symbol {application.name} is not defined"
         assert len(application.arguments) == len(symbol.input_sorts), \
                f"function symbol {application.name} has {len(symbol.input_sorts)} arguments, but {len(application.arguments)} are given"
         return Application(
@@ -202,8 +198,6 @@ class SymbolResolver(CopyVisitor):
 
     def visit_unresolved_relation_application(self, application: UnresolvedRelationApplication) -> RelationApplication:
         symbol = self.language.get_relation_symbol(application.name)
-        assert symbol is not None, \
-               f"relation symbol {application.name} is not defined"
         assert len(application.arguments) == len(symbol.input_sorts), \
                f"relation symbol {application.name} has {len(symbol.input_sorts)} arguments, but {len(application.arguments)} are given"
         return RelationApplication(
@@ -225,9 +219,6 @@ class SymbolResolver(CopyVisitor):
 
     def visit_unresolved_fixpoint_definition(self, definition: UnresolvedFixpointDefinition) -> FixpointDefinition:
         symbol = self.language.get_relation_symbol(definition.name)
-        assert symbol is not None, \
-               f"relation symbol {definition.name} is not defined"
-        
         assert len(definition.variables) == len(symbol.input_sorts), \
                f"relation symbol {definition.name} has {len(symbol.input_sorts)} arguments, but {len(definition.variables)} are given"
 

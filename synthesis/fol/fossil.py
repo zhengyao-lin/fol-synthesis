@@ -198,7 +198,7 @@ class FOSSIL:
                 validity, extended_language, conjuncts = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, goal, natural_proof_depth)
 
                 if validity:
-                    print(f"### valid: {goal}")
+                    print(f"### proved: {goal}")
                     return True
 
                 # print(f"{goal} is unprovable with lemmas:")
@@ -244,10 +244,10 @@ class FOSSIL:
                             # obtaint a concrete lemma
                             lemma = lemma_union_template.get_from_smt_model(synth_solver.get_model())
                         else:
-                            print(f"### lemmas are exhausted, unprovable: {goal}")
+                            print(f"### lemmas exhausted, unable to prove: {goal}")
                             return False
                         
-                        print(f"### synthesized lemma {lemma}", end="", flush=True)
+                        print(f"### lemma: {lemma}", end="", flush=True)
 
                         # check if the PFP of the lemma is FO-valid under the theory and other lemmas
                         # TODO: check the types

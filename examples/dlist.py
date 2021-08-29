@@ -67,10 +67,7 @@ end
 """)
 
 sort_pointer = theory.language.get_sort("Pointer")
-assert sort_pointer is not None
-
 sort_int = theory.language.get_sort("Int")
-assert sort_int is not None
 
 language = theory.language.get_sublanguage(
     ("Pointer", "Int"),

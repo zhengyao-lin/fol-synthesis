@@ -81,6 +81,28 @@ class UninterpretedStructureTemplate(SymbolicStructure, StructureTemplate):
         raise NotImplementedError()
 
 
+class FOModelTemplate(UninterpretedStructureTemplate):
+    def __init__(self, theory: Theory):
+        super().__init__(theory.language, smt.INT)
+        self.theory = theory
+
+    def get_constraint(self) -> smt.SMTTerm:
+        """
+        The model should satify all sentences in the theory
+        """
+        constraint = smt.TRUE()
+        
+        for sentence in self.theory.sentences:
+            if isinstance(sentence, Axiom):
+                constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
+            elif isinstance(sentence, FixpointDefinition):
+                constraint = smt.And(sentence.as_formula().interpret(self, {}), constraint)
+            else:
+                assert False, f"unsupported sentence {sentence}"
+
+        return constraint
+
+
 class FiniteFOModelTemplate(UninterpretedStructureTemplate):
     """
     A variable/template for a FO model of a given theory

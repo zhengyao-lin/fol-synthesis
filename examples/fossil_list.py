@@ -30,9 +30,7 @@ theory LIST
 end
 """)
 
-sort_pointer_opt = theory.language.get_sort("Pointer")
-assert sort_pointer_opt is not None
-sort_pointer: Sort = sort_pointer_opt
+sort_pointer = theory.language.get_sort("Pointer")
 
 params = {
     "use_type1_models": False,

@@ -115,23 +115,23 @@ class Language:
 
         assert False
 
-    def get_sort(self, name: str) -> Optional[Sort]:
+    def get_sort(self, name: str) -> Sort:
         for sort in self.sorts:
             if sort.name == name:
                 return sort
-        return None
+        assert False, f"unable to find sort {name}"
 
-    def get_function_symbol(self, name: str) -> Optional[FunctionSymbol]:
+    def get_function_symbol(self, name: str) -> FunctionSymbol:
         for symbol in self.function_symbols:
             if symbol.name == name:
                 return symbol
-        return None
+        assert False, f"unable to find function {name}"
 
-    def get_relation_symbol(self, name: str) -> Optional[RelationSymbol]:
+    def get_relation_symbol(self, name: str) -> RelationSymbol:
         for symbol in self.relation_symbols:
             if symbol.name == name:
                 return symbol
-        return None
+        assert False, f"unable to find relation {name}"
 
     def get_max_function_arity(self) -> int:
         return max(tuple(len(symbol.input_sorts) for symbol in self.function_symbols) + (0,))

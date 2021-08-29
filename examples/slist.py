@@ -38,7 +38,6 @@ language = theory.language.get_sublanguage(
 )
 
 sort_pointer = language.get_sort("Pointer")
-assert sort_pointer is not None
 
 x = Variable("x", sort_pointer)
 y = Variable("y", sort_pointer)

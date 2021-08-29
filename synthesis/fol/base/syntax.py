@@ -146,30 +146,6 @@ class Application(Term):
 
 
 @dataclass(frozen=True)
-class Verum(Formula):
-    def __str__(self) -> str:
-        return "⊤"
-
-    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
-        return self
-
-    def get_free_variables(self) -> Set[Variable]:
-        return set()
-
-    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
-        return smt.TRUE()
-
-    def get_constraint(self) -> smt.SMTTerm:
-        return smt.TRUE()
-
-    def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
-        return self
-
-    def equals(self, value: Formula) -> smt.SMTTerm:
-        return smt.Bool(self == value)
-
-
-@dataclass(frozen=True)
 class Falsum(Formula):
     def __str__(self) -> str:
         return "⊥"
@@ -182,6 +158,30 @@ class Falsum(Formula):
 
     def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
         return smt.FALSE()
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.TRUE()
+
+    def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
+        return self
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        return smt.Bool(self == value)
+
+
+@dataclass(frozen=True)
+class Verum(Formula):
+    def __str__(self) -> str:
+        return "⊤"
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
+        return self
+
+    def get_free_variables(self) -> Set[Variable]:
+        return set()
+
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.TRUE()
 
     def get_constraint(self) -> smt.SMTTerm:
         return smt.TRUE()
@@ -334,7 +334,7 @@ class Negation(Formula):
     formula: Formula
 
     def __str__(self) -> str:
-        return f"not {self.formula}"
+        return f"¬{self.formula}"
 
     def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
         return Negation(self.formula.substitute(substitution))

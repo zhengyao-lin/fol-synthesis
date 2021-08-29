@@ -139,7 +139,7 @@ class Parser:
         TRUE.2: "true"
         FALSE.2: "false"
 
-        NEGATION.2: "not"
+        NEGATION.2: "not" | "¬"
 
         FORALL.2: "forall"
         EXISTS.2: "exists"

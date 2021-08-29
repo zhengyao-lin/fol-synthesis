@@ -28,7 +28,6 @@ language = theory.language.get_sublanguage(
 )
 
 sort_pointer = language.get_sort("Pointer")
-assert sort_pointer is not None
 
 x = Variable("x", sort_pointer)
 y = Variable("y", sort_pointer)
@@ -36,7 +35,6 @@ z = Variable("z", sort_pointer)
 
 trivial_model = FOProvableStructureTemplate(theory, unfold_depth=2)
 goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 })
-
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (

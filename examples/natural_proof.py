@@ -23,9 +23,7 @@ theory LIST
 end
 """)
 
-sort = theory.language.get_sort("Pointer")
-assert sort is not None
-sort_pointer = sort
+sort_pointer = theory.language.get_sort("Pointer")
 
 
 def prove(goal_src: str, depth: int) -> None:

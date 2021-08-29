@@ -49,7 +49,6 @@ group_language = group_theory.language.get_sublanguage(
 )
 
 sort_group = group_language.get_sort("Group")
-assert sort_group is not None
 
 x = Variable("x", sort_group)
 y = Variable("y", sort_group)

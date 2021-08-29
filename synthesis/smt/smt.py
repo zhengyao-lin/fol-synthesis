@@ -7,9 +7,10 @@ from pysmt.shortcuts import ( # type: ignore
     TRUE, FALSE, And, Or, Not, Implies, Iff, ForAll, Exists, Ite, Equals,
     GT, GE, LT, LE,
     BV, Int, Bool,
-    get_model, Solver
+    get_model, Solver,
+    Array, Select,
 )
-from pysmt.typing import BOOL, INT, BVType, FunctionType, Type # type: ignore
+from pysmt.typing import BOOL, INT, BVType, FunctionType, ArrayType, Type # type: ignore
 from pysmt.smtlib.parser import SmtLibParser # type: ignore
 
 from pysmt.shortcuts import Function as Apply

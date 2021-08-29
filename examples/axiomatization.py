@@ -49,8 +49,8 @@ end
 goal_theory = euclidean_theory
 
 sort_world = trivial_theory.language.get_sort("W")
-transition_relation = trivial_theory.language.get_relation_symbol("R")
-p_relation = trivial_theory.language.get_relation_symbol("P")
+transition_symbol = trivial_theory.language.get_relation_symbol("R")
+p_symbol = trivial_theory.language.get_relation_symbol("P")
 
 atom_p = modal.Atom("p")
 
@@ -77,9 +77,9 @@ with smt.Solver(name="z3") as solver1, \
 
     # state that the formula should not hold on all frames
     solver1.add_assertion(smt.Not(formula_template.interpret_on_all_worlds(
-        modal.FOStructureFrame(trivial_model, sort_world, transition_relation),
+        modal.FOStructureFrame(trivial_model, sort_world, transition_symbol),
         {
-            atom_p: lambda world: trivial_model.interpret_relation(p_relation, world),
+            atom_p: lambda world: trivial_model.interpret_relation(p_symbol, world),
         },
     )))
 
@@ -91,9 +91,9 @@ with smt.Solver(name="z3") as solver1, \
 
         # try to find a frame in which the candidate does not hold on all worlds
         solver2.add_assertion(smt.Not(candidate.interpret_on_all_worlds(
-            modal.FOStructureFrame(goal_model, sort_world, transition_relation),
+            modal.FOStructureFrame(goal_model, sort_world, transition_symbol),
             {
-                atom_p: lambda world: goal_model.interpret_relation(p_relation, world),
+                atom_p: lambda world: goal_model.interpret_relation(p_symbol, world),
             },
         )))
 
@@ -102,9 +102,9 @@ with smt.Solver(name="z3") as solver1, \
             # add the counterexample
             counterexample = goal_model.get_from_smt_model(solver2.get_model())
             solver1.add_assertion(formula_template.interpret_on_all_worlds(
-                modal.FOStructureFrame(counterexample, sort_world, transition_relation),
+                modal.FOStructureFrame(counterexample, sort_world, transition_symbol),
                 {
-                    atom_p: lambda world: counterexample.interpret_relation(p_relation, world),
+                    atom_p: lambda world: counterexample.interpret_relation(p_symbol, world),
                 },
             ))
         else:
@@ -112,35 +112,51 @@ with smt.Solver(name="z3") as solver1, \
             true_formulas.append(candidate)
             # restrict trivial models to the ones where the candidate holds
             solver1.add_assertion(candidate.interpret_on_all_worlds(
-                modal.FOStructureFrame(trivial_model, sort_world, transition_relation),
+                modal.FOStructureFrame(trivial_model, sort_world, transition_symbol),
                 {
-                    atom_p: lambda world: trivial_model.interpret_relation(p_relation, world),
+                    atom_p: lambda world: trivial_model.interpret_relation(p_symbol, world),
                 },
             ))
 
         solver2.pop()
 
 # check completeness
-if len(true_formulas) != 0:
-    axiom = true_formulas[-1]
+# TODO: not sure how to do this
+# if len(true_formulas) != 0:
+#     axiomatization = true_formulas[-1]
+#     for formula in true_formulas[:-1]:
+#         axiomatization = modal.Conjunction(formula, axiomatization)
 
-    for formula in true_formulas[:-1]:
-        axiom = modal.Conjunction(formula, axiom)
+#     print(f"is {axiomatization} complete", end="", flush=True)
 
-    print(f"is {axiom} complete", end="", flush=True)
+#     complement_axiom = Falsum()
 
-    with smt.Solver(name="z3") as solver:
-        model = FOModelTemplate(goal_theory)
-        solver.add_assertion(model.get_constraint())
+#     for sentence in goal_theory.sentences:
+#         if isinstance(sentence, Axiom):
+#             complement_axiom = Disjunction(complement_axiom, Negation(sentence.formula))
 
-        solver.add_assertion(smt.Not(axiom.interpret_on_all_worlds(
-            modal.FOStructureFrame(model, sort_world, transition_relation),
-            {
-                atom_p: lambda world: model.interpret_relation(p_relation, world),
-            }
-        )))
+#     complement_theory = trivial_theory.extend_axioms((complement_axiom,))
 
-        if solver.solve():
-            print(" ... ✘")
-        else:
-            print(" ... ✓")
+#     with smt.Solver(name="z3") as solver:
+#         # check that the axiomatization does not hold on a non-model of the goal_theory
+#         complement_model = FiniteFOModelTemplate(complement_theory, { sort_world: 2 })
+#         # complement_model = FOModelTemplate(complement_theory)
+#         solver.add_assertion(complement_model.get_constraint())
+
+#         p_relation = smt.FreshSymbol(smt.ArrayType(complement_model.get_smt_sort(sort_world), smt.BOOL))
+
+#         solver.add_assertion(smt.ForAll((p_relation,), axiomatization.interpret_on_all_worlds(
+#             modal.FOStructureFrame(complement_model, sort_world, transition_symbol),
+#             {
+#                 atom_p: lambda world: smt.Select(p_relation, world),
+#             }
+#         )))
+
+#         if solver.solve():
+#             # counterexample = complement_model.get_from_smt_model(solver.get_model())
+#             print(" ... ✘")
+#             # print(counterexample.carriers[sort_world])
+#             # print(counterexample.interpret_relation(transition_symbol, smt.Int(0), smt.Int(0)))
+#             # print(counterexample.interpret_relation(p_symbol, smt.Int(0)))
+#         else:
+#             print(" ... ✓")

@@ -46,7 +46,7 @@ theory EUCLIDEAN
 end
 """)
 
-goal_theory = euclidean_theory
+goal_theory = transitive_theory
 
 sort_world = trivial_theory.language.get_sort("W")
 transition_symbol = trivial_theory.language.get_relation_symbol("R")
@@ -56,6 +56,19 @@ atom_p = modal.Atom("p")
 
 formula_template = modal.ModalFormulaTemplate((atom_p,), 3)
 
+# complete axiom for symmetric frames
+# formula_template = modal.Implication(
+#     atom_p,
+#     modal.Modality(modal.Negation(modal.Modality(modal.Negation(atom_p)))),
+# )
+
+# complete axiom for euclidean frames
+# formula_template = modal.Implication(
+#     modal.Negation(modal.Modality(modal.Negation(atom_p))),
+#     modal.Modality(modal.Negation(modal.Modality(modal.Negation(atom_p)))),
+# )
+
+# true in symmetric frames but not complete
 # modal.Implication(
 #     modal.Modality(modal.Modality(atom_p)),
 #     modal.Disjunction(
@@ -64,8 +77,11 @@ formula_template = modal.ModalFormulaTemplate((atom_p,), 3)
 #     ),
 # )
 
-trivial_model = FiniteFOModelTemplate(trivial_theory, { sort_world: 4 })
-goal_model = FiniteFOModelTemplate(goal_theory, { sort_world: 4 })
+model_size_bound = 4
+
+# trivial_model = FOModelTemplate(trivial_theory)
+trivial_model = FiniteFOModelTemplate(trivial_theory, { sort_world: model_size_bound })
+goal_model = FiniteFOModelTemplate(goal_theory, { sort_world: model_size_bound })
 
 true_formulas = []
 
@@ -120,43 +136,52 @@ with smt.Solver(name="z3") as solver1, \
 
         solver2.pop()
 
-# check completeness
-# TODO: not sure how to do this
-# if len(true_formulas) != 0:
-#     axiomatization = true_formulas[-1]
-#     for formula in true_formulas[:-1]:
-#         axiomatization = modal.Conjunction(formula, axiomatization)
+# check completeness of the axioms on a set of finite structures with bounded size
+if len(true_formulas) != 0:
+    axiomatization = true_formulas[-1]
+    for formula in true_formulas[:-1]:
+        axiomatization = modal.Conjunction(formula, axiomatization)
 
-#     print(f"is {axiomatization} complete", end="", flush=True)
+    print(f"is {axiomatization} complete", end="", flush=True)
 
-#     complement_axiom = Falsum()
+    complement_axiom: Formula = Falsum()
 
-#     for sentence in goal_theory.sentences:
-#         if isinstance(sentence, Axiom):
-#             complement_axiom = Disjunction(complement_axiom, Negation(sentence.formula))
+    for sentence in goal_theory.sentences:
+        if isinstance(sentence, Axiom):
+            complement_axiom = Disjunction(complement_axiom, Negation(sentence.formula))
 
-#     complement_theory = trivial_theory.extend_axioms((complement_axiom,))
+    complement_theory = trivial_theory.extend_axioms((complement_axiom,))
 
-#     with smt.Solver(name="z3") as solver:
-#         # check that the axiomatization does not hold on a non-model of the goal_theory
-#         complement_model = FiniteFOModelTemplate(complement_theory, { sort_world: 2 })
-#         # complement_model = FOModelTemplate(complement_theory)
-#         solver.add_assertion(complement_model.get_constraint())
+    with smt.Solver(name="z3") as solver:
+        # check that the axiomatization does not hold on a non-model of the goal_theory
+        complement_model = FiniteFOModelTemplate(complement_theory, { sort_world: model_size_bound })
+        solver.add_assertion(complement_model.get_constraint())
 
-#         p_relation = smt.FreshSymbol(smt.ArrayType(complement_model.get_smt_sort(sort_world), smt.BOOL))
+        carrier = complement_model.interpret_sort(sort_world)
+        assert isinstance(carrier, FiniteCarrierSet)
+        
+        p_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in range(model_size_bound))
+        p_relation = lambda world: smt.Or(
+            smt.And(
+                smt.Equals(world, carrier.domain[i]),
+                p_values[i],
+            )
+            for i in range(model_size_bound)
+        )
 
-#         solver.add_assertion(smt.ForAll((p_relation,), axiomatization.interpret_on_all_worlds(
-#             modal.FOStructureFrame(complement_model, sort_world, transition_symbol),
-#             {
-#                 atom_p: lambda world: smt.Select(p_relation, world),
-#             }
-#         )))
+        # need to quantify over all relations P
+        solver.add_assertion(smt.ForAll(p_values, axiomatization.interpret_on_all_worlds(
+            modal.FOStructureFrame(complement_model, sort_world, transition_symbol),
+            {
+                atom_p: p_relation,
+            }
+        )))
 
-#         if solver.solve():
-#             # counterexample = complement_model.get_from_smt_model(solver.get_model())
-#             print(" ... ✘")
-#             # print(counterexample.carriers[sort_world])
-#             # print(counterexample.interpret_relation(transition_symbol, smt.Int(0), smt.Int(0)))
-#             # print(counterexample.interpret_relation(p_symbol, smt.Int(0)))
-#         else:
-#             print(" ... ✓")
+        if solver.solve():
+            print(" ... ✘")
+            # counterexample = complement_model.get_from_smt_model(solver.get_model())
+            # print(counterexample.carriers[sort_world])
+            # print(counterexample.interpret_relation(transition_symbol, smt.Int(0), smt.Int(0)))
+            # print(counterexample.interpret_relation(p_symbol, smt.Int(0)))
+        else:
+            print(" ... ✓")

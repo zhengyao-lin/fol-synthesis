@@ -15,11 +15,10 @@ class Frame(ABC):
         return smt.FreshSymbol(self.get_smt_sort())
 
     @abstractmethod
-    def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
-        """
-        Quantify over all worlds
-        """
-        ...
+    def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm: ...
+
+    @abstractmethod
+    def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm: ...
 
     @abstractmethod
     def interpret_transition(self, from_world: smt.SMTTerm, to_world: smt.SMTTerm) -> smt.SMTTerm:
@@ -39,11 +38,12 @@ class FOStructureFrame(Frame):
         return self.structure.get_smt_sort(self.world_sort)
 
     def universally_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
-        """
-        Quantify over all worlds
-        """
         carrier = self.structure.interpret_sort(self.world_sort)
         return carrier.universally_quantify(variable, formula)
+
+    def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
+        carrier = self.structure.interpret_sort(self.world_sort)
+        return carrier.existentially_quantify(variable, formula)
 
     def interpret_transition(self, from_world: smt.SMTTerm, to_world: smt.SMTTerm) -> smt.SMTTerm:
         return self.structure.interpret_relation(self.transition_symbol, from_world, to_world)

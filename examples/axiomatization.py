@@ -46,7 +46,7 @@ theory EUCLIDEAN
 end
 """)
 
-goal_theory = transitive_theory
+goal_theory = euclidean_theory
 
 sort_world = trivial_theory.language.get_sort("W")
 transition_symbol = trivial_theory.language.get_relation_symbol("R")
@@ -69,7 +69,7 @@ formula_template = modal.ModalFormulaTemplate((atom_p,), 3)
 # )
 
 # true in symmetric frames but not complete
-# modal.Implication(
+# formula_template = modal.Implication(
 #     modal.Modality(modal.Modality(atom_p)),
 #     modal.Disjunction(
 #         modal.Modality(atom_p),
@@ -127,12 +127,26 @@ with smt.Solver(name="z3") as solver1, \
             print(" ... ✓")
             true_formulas.append(candidate)
             # restrict trivial models to the ones where the candidate holds
-            solver1.add_assertion(candidate.interpret_on_all_worlds(
+            # TODO: here we preferably want to quantify over all P
+
+            carrier = trivial_model.interpret_sort(sort_world)
+            assert isinstance(carrier, FiniteCarrierSet)
+            
+            p_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in range(model_size_bound))
+            p_relation = (lambda p_values: lambda world: smt.Or(
+                smt.And(
+                    smt.Equals(world, carrier.domain[i]),
+                    p_values[i],
+                )
+                for i in range(model_size_bound)
+            ))(p_values)
+
+            solver1.add_assertion(smt.ForAll(p_values, candidate.interpret_on_all_worlds(
                 modal.FOStructureFrame(trivial_model, sort_world, transition_symbol),
                 {
-                    atom_p: lambda world: trivial_model.interpret_relation(p_symbol, world),
+                    atom_p: p_relation,
                 },
-            ))
+            )))
 
         solver2.pop()
 

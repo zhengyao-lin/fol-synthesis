@@ -270,3 +270,34 @@ class Modality(Formula):
         if not isinstance(value, Modality):
             return smt.FALSE()
         return self.formula.equals(value.formula)
+
+
+@dataclass(frozen=True)
+class Diamond(Formula):
+    formula: Formula
+
+    def __str__(self) -> str:
+        return f"◊{self.formula}"
+
+    def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
+        var = frame.get_fresh_constant()
+
+        # i.e. exists a successor of the current world in which self.formula holds
+        return frame.existentially_quantify(
+            var,
+            smt.And(
+                frame.interpret_transition(world, var),
+                self.formula.interpret(frame, valuation, var),
+            ),
+        )
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return self.formula.get_constraint()
+
+    def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
+        return Diamond(self.formula.get_from_smt_model(model))
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        if not isinstance(value, Diamond):
+            return smt.FALSE()
+        return self.formula.equals(value.formula)

@@ -8,7 +8,7 @@ from .syntax import *
 class ModalFormulaTemplate(Formula):
     def __init__(self, atoms: Tuple[Atom, ...], depth: int):
         self.atoms = atoms
-        self.node = BoundedIntegerVariable(0, 8 + len(atoms))
+        self.node = BoundedIntegerVariable(0, 9 + len(atoms))
         self.depth = depth
 
         if depth == 0:
@@ -30,6 +30,7 @@ class ModalFormulaTemplate(Formula):
             6: (Equivalence, 2),
             7: (Negation, 1),
             8: (Modality, 1),
+            9: (Diamond, 1),
             # the rest is for atoms
         }[node_value]
 
@@ -43,7 +44,7 @@ class ModalFormulaTemplate(Formula):
         constraint = smt.FALSE()
 
         for node_value in self.node.get_range():
-            if node_value > 8:
+            if node_value > 9:
                 constraint = smt.Or(
                     smt.And(
                         self.node.equals(node_value),
@@ -69,11 +70,11 @@ class ModalFormulaTemplate(Formula):
         node_value = self.node.get_from_smt_model(model)
         assert node_value != 0, "null formula"
 
-        if node_value <= 8:
+        if node_value <= 9:
             constructor, arity = self.get_constructor_and_arity(node_value)
             return constructor(*(subformula.get_from_smt_model(model) for subformula in self.subformulas[:arity]))
 
-        return self.atoms[node_value - 9]
+        return self.atoms[node_value - 10]
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         if isinstance(value, Falsum):
@@ -84,7 +85,7 @@ class ModalFormulaTemplate(Formula):
 
         if isinstance(value, Atom):
             if value in self.atoms:
-                return self.node.equals(9 + self.atoms.index(value))
+                return self.node.equals(10 + self.atoms.index(value))
             else:
                 return smt.FALSE()
 
@@ -130,6 +131,12 @@ class ModalFormulaTemplate(Formula):
                 self.node.equals(8),
                 self.subformulas[0].equals(value.formula),
             )
+
+        if isinstance(value, Diamond):
+            return smt.And(
+                self.node.equals(9),
+                self.subformulas[0].equals(value.formula),
+            )
         
         return smt.FALSE()
 
@@ -137,10 +144,10 @@ class ModalFormulaTemplate(Formula):
         interp = smt.FALSE()
 
         for node_value in self.node.get_range():
-            if node_value > 8:
+            if node_value > 9:
                 interp = smt.Ite(
                     self.node.equals(node_value),
-                    self.atoms[node_value - 9].interpret(frame, valuation, world),
+                    self.atoms[node_value - 10].interpret(frame, valuation, world),
                     interp,
                 )
 
@@ -213,6 +220,20 @@ class ModalFormulaTemplate(Formula):
                         frame.universally_quantify(
                             var,
                             smt.Implies(
+                                frame.interpret_transition(world, var),
+                                self.subformulas[0].interpret(frame, valuation, var),
+                            ),
+                        ),
+                        interp,
+                    )
+
+                elif node_value == 9:
+                    var = frame.get_fresh_constant()
+                    interp = smt.Ite(
+                        self.node.equals(node_value),
+                        frame.existentially_quantify(
+                            var,
+                            smt.And(
                                 frame.interpret_transition(world, var),
                                 self.subformulas[0].interpret(frame, valuation, var),
                             ),

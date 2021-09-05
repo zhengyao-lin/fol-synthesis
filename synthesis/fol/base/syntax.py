@@ -232,7 +232,48 @@ class RelationApplication(Formula):
         return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
 
 
-AtomicFormula = Union[Verum, Falsum, RelationApplication]
+@dataclass(frozen=True)
+class Equality(Formula):
+    left: Term
+    right: Term
+
+    def __str__(self) -> str:
+        return f"{self.left} = {self.right}"
+
+    def substitute(self, substitution: Mapping[Variable, Term]) -> Formula:
+        return Equality(
+            self.left.substitute(substitution),
+            self.right.substitute(substitution),
+        )
+
+    def get_free_variables(self) -> Set[Variable]:
+        return self.left.get_free_variables().union(self.right.get_free_variables())
+
+    def interpret(self, structure: Structure, valuation: Mapping[Variable, smt.SMTTerm]) -> smt.SMTTerm:
+        return smt.Equals(
+            self.left.interpret(structure, valuation),
+            self.right.interpret(structure, valuation),
+        )
+
+    def get_constraint(self) -> smt.SMTTerm:
+        return smt.And(self.left.get_constraint(), self.right.get_constraint())
+
+    def get_from_smt_model(self, model: smt.SMTModel) -> Formula:
+        return Equality(
+            self.left.get_from_smt_model(model),
+            self.right.get_from_smt_model(model),
+        )
+
+    def equals(self, value: Formula) -> smt.SMTTerm:
+        if not isinstance(value, Equality):
+            return smt.FALSE()
+        return smt.And(
+            self.left.equals(value.left),
+            self.right.equals(value.right),
+        )
+
+
+AtomicFormula = Union[Verum, Falsum, RelationApplication, Equality]
 
 
 @dataclass(frozen=True)

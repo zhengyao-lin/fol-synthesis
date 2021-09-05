@@ -395,7 +395,8 @@ class QuantifierFreeFormulaTemplate(Formula):
     def equals(self, value: Formula) -> smt.SMTTerm:
         if isinstance(value, Falsum) or \
            isinstance(value, Verum) or \
-           isinstance(value, RelationApplication):
+           isinstance(value, RelationApplication) or \
+           isinstance(value, Equality):
             return self.atom.equals(value)
 
         if self.formula_depth == 0:

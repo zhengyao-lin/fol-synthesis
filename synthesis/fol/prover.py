@@ -39,6 +39,9 @@ class NaturalProof:
         elif isinstance(formula, RelationApplication):
             return formula.arguments
 
+        elif isinstance(formula, Equality):
+            return (formula.left, formula.right)
+
         elif isinstance(formula, Conjunction) or \
              isinstance(formula, Disjunction) or \
              isinstance(formula, Implication) or \
@@ -94,7 +97,8 @@ class NaturalProof:
     def count_quantifiers(formula: Formula) -> int:
         if isinstance(formula, Falsum) or \
            isinstance(formula, Verum) or \
-           isinstance(formula, RelationApplication):
+           isinstance(formula, RelationApplication) or \
+           isinstance(formula, Equality):
             return 0
 
         elif isinstance(formula, Conjunction) or \
@@ -130,6 +134,14 @@ class NaturalProof:
                     var_name = name
 
             return var_name
+
+        elif isinstance(ast, Equality):
+            left_name = NaturalProof.get_longest_variable_name(ast.left)
+            right_name = NaturalProof.get_longest_variable_name(ast.right)
+            if len(right_name) > len(left_name):
+                return right_name
+            else:
+                return left_name
 
         elif isinstance(ast, Conjunction) or \
              isinstance(ast, Disjunction) or \
@@ -178,7 +190,8 @@ class NaturalProof:
 
         if isinstance(formula, Falsum) or \
            isinstance(formula, Verum) or \
-           isinstance(formula, RelationApplication):
+           isinstance(formula, RelationApplication) or \
+           isinstance(formula, Equality):
             return (), formula
 
         elif isinstance(formula, Conjunction) or \

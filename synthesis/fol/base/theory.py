@@ -57,6 +57,9 @@ class FixpointDefinition(Sentence):
             else:
                 return formula
 
+        elif isinstance(formula, Equality):
+            return formula
+
         elif isinstance(formula, Negation):
             return Negation(self.unfold_in_formula(formula.formula))
 

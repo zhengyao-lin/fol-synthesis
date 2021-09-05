@@ -13,11 +13,9 @@ theory LIST
     relation lseg: Pointer Pointer
     relation in_lseg: Pointer Pointer Pointer
 
-    relation eq: Pointer Pointer [smt("(= #1 #2)")]
-
-    fixpoint in_lseg(x, y, z) = not eq(y, z) /\ (eq(x, y) \/ in_lseg(x, n(y), z))
-    fixpoint list(x) = eq(x, nil()) \/ (list(n(x)) /\ not in_lseg(x, n(x), nil()))
-    fixpoint lseg(x, y) = eq(x, y) \/ (lseg(n(x), y) /\ not in_lseg(x, n(x), y))
+    fixpoint in_lseg(x, y, z) = y != z /\ (x = y \/ in_lseg(x, n(y), z))
+    fixpoint list(x) = x = nil() \/ (list(n(x)) /\ not in_lseg(x, n(x), nil()))
+    fixpoint lseg(x, y) = x = y \/ (lseg(n(x), y) /\ not in_lseg(x, n(x), y))
 end
 """)
 

@@ -67,6 +67,12 @@ class CopyVisitor:
             tuple(self.visit(argument) for argument in application.arguments),
         )
 
+    def visit_equality(self, equality: Equality) -> Equality:
+        return Equality(
+            self.visit(equality.left),
+            self.visit(equality.right),
+        )
+
     def visit_conjunction(self, conjunction: Conjunction) -> Conjunction:
         return Conjunction(
             self.visit(conjunction.left),

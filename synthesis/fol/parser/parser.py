@@ -79,6 +79,14 @@ class ASTTransformer(Transformer[BaseAST]):
         name, arguments = args
         return UnresolvedRelationApplication(name, tuple(arguments))
 
+    def equality(self, args: List[Term]) -> Equality:
+        left, right = args
+        return Equality(left, right)
+
+    def disequality(self, args: List[Term]) -> Formula:
+        left, right = args
+        return Negation(Equality(left, right))
+
     def negation(self, args: List[Formula]) -> Negation:
         _, formula = args
         return Negation(formula)
@@ -175,9 +183,10 @@ class Parser:
         // '?' here means that if the production only has one non-terminal e.g. negation -> atomic
         // the transformer of 'atomic' will be called instead of 'negation'
 
-        atomic: TRUE                         -> verum
-              | FALSE                        -> falsum
-              // | term "=" term     -> equality
+        atomic: TRUE                     -> verum
+              | FALSE                    -> falsum
+              | term "=" term            -> equality
+              | term "!=" term           -> disequality
               | "(" formula ")"          -> paren_formula
               | identifier "(" terms ")" -> relation_application
 

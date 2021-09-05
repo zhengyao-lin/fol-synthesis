@@ -18,7 +18,7 @@ class FOLUtils:
             assert len(free_vars) == len(relation_symbol.input_sorts) == len(formula.arguments)
             return substitute.substitute(dict(zip(free_vars, formula.arguments)))
 
-        elif isinstance(formula, Falsum) or isinstance(formula, Verum):
+        elif isinstance(formula, Falsum) or isinstance(formula, Verum) or isinstance(formula, Equality):
             return formula
 
         elif isinstance(formula, Conjunction) or \

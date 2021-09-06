@@ -46,7 +46,7 @@ theory EUCLIDEAN
 end
 """)
 
-goal_theory = euclidean_theory
+goal_theory = reflexivity_theory
 
 sort_world = trivial_theory.language.get_sort("W")
 transition_symbol = trivial_theory.language.get_relation_symbol("R")
@@ -54,28 +54,7 @@ p_symbol = trivial_theory.language.get_relation_symbol("P")
 
 atom_p = modal.Atom("p")
 
-formula_template = modal.ModalFormulaTemplate((atom_p,), 3)
-
-# complete axiom for symmetric frames
-# formula_template = modal.Implication(
-#     atom_p,
-#     modal.Modality(modal.Negation(modal.Modality(modal.Negation(atom_p)))),
-# )
-
-# complete axiom for euclidean frames
-# formula_template = modal.Implication(
-#     modal.Negation(modal.Modality(modal.Negation(atom_p))),
-#     modal.Modality(modal.Negation(modal.Modality(modal.Negation(atom_p)))),
-# )
-
-# true in symmetric frames but not complete
-# formula_template = modal.Implication(
-#     modal.Modality(modal.Modality(atom_p)),
-#     modal.Disjunction(
-#         modal.Modality(atom_p),
-#         atom_p,
-#     ),
-# )
+formula_template = modal.ModalFormulaTemplate((atom_p,), 2)
 
 model_size_bound = 4
 
@@ -127,20 +106,9 @@ with smt.Solver(name="z3") as solver1, \
             print(" ... ✓")
             true_formulas.append(candidate)
             # restrict trivial models to the ones where the candidate holds
-            # TODO: here we preferably want to quantify over all P
-
-            carrier = trivial_model.interpret_sort(sort_world)
-            assert isinstance(carrier, FiniteCarrierSet)
             
-            p_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in range(model_size_bound))
-            p_relation = (lambda p_values: lambda world: smt.Or(
-                smt.And(
-                    smt.Equals(world, carrier.domain[i]),
-                    p_values[i],
-                )
-                for i in range(model_size_bound)
-            ))(p_values)
-
+            p_relation, p_values = trivial_model.get_free_finite_relation((sort_world,))
+            
             solver1.add_assertion(smt.ForAll(p_values, candidate.interpret_on_all_worlds(
                 modal.FOStructureFrame(trivial_model, sort_world, transition_symbol),
                 {
@@ -171,17 +139,7 @@ if len(true_formulas) != 0:
         complement_model = FiniteFOModelTemplate(complement_theory, { sort_world: model_size_bound })
         solver.add_assertion(complement_model.get_constraint())
 
-        carrier = complement_model.interpret_sort(sort_world)
-        assert isinstance(carrier, FiniteCarrierSet)
-        
-        p_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in range(model_size_bound))
-        p_relation = lambda world: smt.Or(
-            smt.And(
-                smt.Equals(world, carrier.domain[i]),
-                p_values[i],
-            )
-            for i in range(model_size_bound)
-        )
+        p_relation, p_values = complement_model.get_free_finite_relation((sort_world,))
 
         # need to quantify over all relations P
         solver.add_assertion(smt.ForAll(p_values, axiomatization.interpret_on_all_worlds(
@@ -193,9 +151,5 @@ if len(true_formulas) != 0:
 
         if solver.solve():
             print(" ... ✘")
-            # counterexample = complement_model.get_from_smt_model(solver.get_model())
-            # print(counterexample.carriers[sort_world])
-            # print(counterexample.interpret_relation(transition_symbol, smt.Int(0), smt.Int(0)))
-            # print(counterexample.interpret_relation(p_symbol, smt.Int(0)))
         else:
             print(" ... ✓")

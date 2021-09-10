@@ -46,7 +46,16 @@ theory EUCLIDEAN
 end
 """)
 
-goal_theory = reflexivity_theory
+rst_theory = Parser.parse_theory(r"""
+theory RST
+    sort W
+    relation R: W W
+    relation P: W
+    axiom forall x: W, y: W, z: W. R(x, x) /\ (R(x, y) -> R(y, x)) /\ (R(x, y) /\ R(y, z) -> R(x, z))
+end
+""")
+
+goal_theory = rst_theory
 
 sort_world = trivial_theory.language.get_sort("W")
 transition_symbol = trivial_theory.language.get_relation_symbol("R")
@@ -54,7 +63,7 @@ p_symbol = trivial_theory.language.get_relation_symbol("P")
 
 atom_p = modal.Atom("p")
 
-formula_template = modal.ModalFormulaTemplate((atom_p,), 2)
+formula_template = modal.ModalFormulaTemplate((atom_p,), 4)
 
 model_size_bound = 4
 

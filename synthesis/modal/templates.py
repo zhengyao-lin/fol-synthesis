@@ -1,8 +1,22 @@
 from typing import Tuple, Callable
 
-from synthesis.template import Template, BoundedIntegerVariable
+from synthesis.template import Template, BoundedIntegerVariable, UnionTemplate
 
 from .syntax import *
+
+
+class UnionFormulaTemplate(UnionTemplate[Formula], Formula):
+    templates: Tuple[Formula, ...]
+
+    def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
+        return smt.Or(*(
+            smt.Ite(
+                self.node.equals(node_value),
+                template.interpret(frame, valuation, world),
+                smt.FALSE(),
+            )
+            for node_value, template in enumerate(self.templates, 1)
+        ))
 
 
 class ModalFormulaTemplate(Formula):

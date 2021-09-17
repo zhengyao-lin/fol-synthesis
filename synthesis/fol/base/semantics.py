@@ -2,10 +2,12 @@
 Structure of a many-sorted language
 """
 
-from typing import Tuple, Mapping
+from typing import Tuple, Mapping, List, Union, Callable
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+
+import itertools
 
 from synthesis.smt import smt
 
@@ -24,6 +26,9 @@ class CarrierSet(ABC):
     
     @abstractmethod
     def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable: ...
+
+    def __str__(self) -> str:
+        raise NotImplementedError()
 
 
 class Structure(ABC):
@@ -69,6 +74,9 @@ class RefinementCarrierSet(CarrierSet):
         solver.add_assertion(self.predicate(var))
         return var
 
+    def __str__(self) -> str:
+        return f"{{ x: {self.sort} | ... }}"
+
 
 @dataclass
 class FiniteCarrierSet(CarrierSet):
@@ -88,6 +96,9 @@ class FiniteCarrierSet(CarrierSet):
         var = smt.FreshSymbol(self.sort)
         solver.add_assertion(smt.Or(*(smt.Equals(var, element) for element in self.domain)))
         return var
+
+    def __str__(self) -> str:
+        return f"{{ {', '.join(map(str, self.domain))} }}"
 
 
 class SymbolicStructure(Structure):
@@ -123,3 +134,68 @@ class SymbolicStructure(Structure):
             return symbol.smt_hook(*arguments)
 
         return self.relation_interpretations[symbol](*arguments)
+
+    def get_domain_of_sorts(self, sorts: Tuple[Sort, ...]) -> Tuple[Tuple[smt.SMTTerm, ...], ...]:
+        """
+        Generate all elements in the domain of the product of the given sorts
+        Any potentially infinite sort is represented by a fresh symbol
+        """
+
+        domains: List[Tuple[smt.SMTTerm, ...]] = []
+
+        for sort in sorts:
+            carrier = self.interpret_sort(sort)
+
+            if isinstance(carrier, FiniteCarrierSet):
+                domains.append(carrier.domain)
+            elif isinstance(carrier, RefinementCarrierSet):
+                domains.append((smt.FreshSymbol(carrier.get_smt_sort()),))
+            else:
+                assert False, f"unsupported carrier set {carrier}"
+
+        return tuple(domains)
+
+    def __str__(self) -> str:
+        """
+        Stringify the finitary part of the structure
+        """
+
+        output: List[str] = []
+
+        domain_to_str: Callable[[Tuple[smt.SMTTerm, ...]], str] = \
+            lambda terms: f"({', '.join(map(str, terms))})" if len(terms) != 1 else str(terms[0])
+
+        for sort, carrier in self.carriers.items():
+            output.append(f"{sort} := {carrier}")
+
+        for function_symbol, interp in self.function_interpretations.items():
+            output.append(f"{function_symbol} :=")
+
+            if len(function_symbol.input_sorts) == 0:
+                output[-1] += f" {interp()}"
+            else:
+                for elems in itertools.product(*self.get_domain_of_sorts(function_symbol.input_sorts)):
+                    value = interp(*elems).simplify()
+                    output.append(f"    {domain_to_str(elems)} |-> {value}")
+
+        for relation_symbol, interp in self.relation_interpretations.items():
+            output.append(f"{relation_symbol} := {{")
+            non_empty = False
+
+            for elems in itertools.product(*self.get_domain_of_sorts(relation_symbol.input_sorts)):
+                value = interp(*elems).simplify()
+
+                if value.is_true():
+                    non_empty = True
+                    output.append(f"    {domain_to_str(elems)}")
+
+                elif not value.is_false():
+                    non_empty = True
+                    output.append(f"    {domain_to_str(elems)} if {value}")
+
+            if not non_empty:
+                output[-1] += "}"
+            else:
+                output.append("}")
+
+        return "\n".join(output)

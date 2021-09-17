@@ -24,6 +24,9 @@ class Sort(BaseAST):
     def __eq__(self, other: Any) -> bool:
         return isinstance(other, Sort) and self.name == other.name
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 @dataclass(frozen=True)
 class FunctionSymbol(BaseAST):
@@ -45,6 +48,9 @@ class FunctionSymbol(BaseAST):
                self.output_sort == other.output_sort and \
                self.name == other.name
 
+    def __hash__(self) -> int:
+        return hash(self.input_sorts) ^ hash(self.output_sort) ^ hash(self.name)
+
 
 @dataclass(frozen=True)
 class RelationSymbol(BaseAST):
@@ -63,6 +69,9 @@ class RelationSymbol(BaseAST):
         return isinstance(other, RelationSymbol) and \
                self.input_sorts == other.input_sorts and \
                self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(self.input_sorts) ^ hash(self.name)
 
 
 @dataclass(frozen=True)

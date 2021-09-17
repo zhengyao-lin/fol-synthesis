@@ -100,6 +100,9 @@ class CEGISynthesizer:
                                 counterexample = goal_model.get_from_smt_model(check_solver.get_model())
                                 counterexamples.append(counterexample)
                                 gen_solver.add_assertion(template.quantify_all_free_variables().interpret(counterexample, {}))
+
+                                # print(counterexample)
+
                             else:
                                 # no conuterexample found
                                 print("✓")

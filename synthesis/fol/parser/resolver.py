@@ -31,10 +31,16 @@ class CopyVisitor:
     def visit(self, ast: Formula) -> Formula: ...
 
     @overload
+    def visit(self, ast: FixpointDefinition) -> FixpointDefinition: ...
+
+    @overload
+    def visit(self, ast: Axiom) -> Axiom: ...
+
+    @overload
     def visit(self, ast: Sentence) -> Sentence: ...
 
     @overload
-    def visit(self, ast: UnresolvedTheory) -> Union[Theory, UnresolvedTheory]: ...
+    def visit(self, ast: UnresolvedTheory) -> UnresolvedTheory: ...
 
     @overload
     def visit(self, ast: Theory) -> Theory: ...
@@ -125,7 +131,8 @@ class CopyVisitor:
     def visit_theory(self, theory: Theory) -> Theory:
         return Theory(
             theory.language,
-            tuple(self.visit(sentence) for sentence in theory.sentences),
+            { symbol: self.visit(definition) for symbol, definition in theory.fixpoint_definitions.items() },
+            tuple(self.visit(axiom) for axiom in theory.axioms),
         )
 
     def visit_unresolved_variable(self, variable: UnresolvedVariable) -> Union[Variable, UnresolvedVariable]:
@@ -174,6 +181,8 @@ class CopyVisitor:
     def visit_unresolved_theory(self, theory: UnresolvedTheory) -> Union[Theory, UnresolvedTheory]:
         return UnresolvedTheory(
             theory.name,
+            theory.base_theory_names,
+            theory.language,
             tuple(self.visit(sentence) for sentence in theory.sentences),
         )
 
@@ -321,15 +330,20 @@ class Resolver:
                 if smt_attribute is not None:
                     sort = Sort(sort.name, smt_hook=smt.SMTLIB.parse_sort(smt_attribute))
 
+                assert sort not in sorts, f"duplicate sort {sort} in theory {theory.name}"
+
                 sorts.append(sort)
 
         return tuple(sorts)
 
     @staticmethod
-    def resolve_language(theory: UnresolvedTheory) -> Theory:
+    def resolve_language(theory: UnresolvedTheory) -> UnresolvedTheory:
         """
         Collect sort, function, and relation symbols from a theory
         """
+
+        assert len(theory.base_theory_names) == 0, \
+               f"expecting no theory import, got {theory.base_theory_names}"
 
         sorts = Resolver.collect_sorts(theory)
         sort_map = { sort.name: sort for sort in sorts }
@@ -380,15 +394,77 @@ class Resolver:
 
         language = Language(sorts, tuple(function_symbols.values()), tuple(relation_symbols.values()))
 
-        return Theory(language, tuple(other_sentences))
+        return UnresolvedTheory(theory.name, theory.base_theory_names, language, tuple(other_sentences))
 
     @staticmethod
     def resolve_theory(theory: UnresolvedTheory) -> Theory:
         resolved = Resolver.resolve_language(theory)
         resolved = SymbolResolver(resolved.language).visit(resolved)
         resolved = VariableSortResolver(resolved.language).visit(resolved)
+
+        fixpoint_definitions: Dict[RelationSymbol, FixpointDefinition] = {}
+        axioms: List[Axiom] = []
+
+        for sentence in resolved.sentences:
+            if isinstance(sentence, Axiom):
+                axioms.append(sentence)
+            elif isinstance(sentence, FixpointDefinition):
+                assert sentence.relation_symbol not in fixpoint_definitions, \
+                       f"duplicate fixpoint definitions for {sentence.relation_symbol}"
+                fixpoint_definitions[sentence.relation_symbol] = sentence
+
         # TODO: do a final sort check
-        return resolved
+        
+        return Theory(resolved.language, fixpoint_definitions, tuple(axioms))
+
+    @staticmethod
+    def resolve_theories(theories: Tuple[UnresolvedTheory, ...]) -> Dict[str, Theory]:
+        """
+        Resolve a list of theories that may extend each other
+        """
+        theory_map: Dict[str, UnresolvedTheory] = {}
+        theory_imports: Dict[str, Set[str]] = {}
+
+        for theory in theories:
+            theory_map[theory.name] = theory
+            theory_imports[theory.name] = set(theory.base_theory_names)
+
+        # compute the set of theories each theory extends from
+        changed = True
+        while changed:
+            changed = False
+
+            for theory in theory_map.values():
+                assert theory.name not in theory_imports[theory.name], \
+                       f"circular imports from theory {theory.name}"
+
+                for base_theory_name in theory.base_theory_names:
+                    assert base_theory_name in theory_imports, \
+                           f"theory {base_theory_name} not found"
+
+                    if not theory_imports[theory.name].issuperset(theory_imports[base_theory_name]):
+                        theory_imports[theory.name].update(theory_imports[base_theory_name])
+                        changed = True
+
+        extended_theories: List[UnresolvedTheory] = []
+
+        # actually extend the theories
+        for theory in theory_map.values():
+            new_sentences = theory.sentences
+
+            for base_theory_name in sorted(theory_imports[theory.name]):
+                new_sentences += theory_map[base_theory_name].sentences
+
+            # create a new theory
+            extended_theories.append(UnresolvedTheory(
+                theory.name,
+                (),
+                theory.language,
+                new_sentences,
+            ))
+
+        # then resolve each theory
+        return { theory.name: Resolver.resolve_theory(theory) for theory in extended_theories }
 
     @staticmethod
     def resolve_term(language: Language, term: Term) -> Term:

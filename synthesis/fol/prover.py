@@ -334,19 +334,10 @@ class NaturalProof:
         """
 
         language = theory.language
-        normalized_formulas = []
 
         # collect all sentences in the theory
         # fixpoint definitions are added as equivalence
-        for sentence in theory.sentences:
-            if isinstance(sentence, Axiom):
-                normalized_formulas.append(sentence.formula)
-
-            elif isinstance(sentence, FixpointDefinition):
-                normalized_formulas.append(sentence.as_formula())
-
-            else:
-                assert False, f"unsupported sentence {sentence}"
+        normalized_formulas = list(theory.convert_to_fo_theory())
 
         # skolemize all sentences in the theory
         for i, formula in enumerate(normalized_formulas):

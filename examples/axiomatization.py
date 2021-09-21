@@ -137,9 +137,8 @@ if len(true_formulas) != 0:
 
     complement_axiom: Formula = Falsum()
 
-    for sentence in goal_theory.sentences:
-        if isinstance(sentence, Axiom):
-            complement_axiom = Disjunction(complement_axiom, Negation(sentence.formula))
+    for axiom in goal_theory.get_axioms():
+        complement_axiom = Disjunction(complement_axiom, Negation(axiom.formula))
 
     complement_theory = trivial_theory.extend_axioms((complement_axiom,))
 

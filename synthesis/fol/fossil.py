@@ -35,10 +35,9 @@ class FOSSIL:
     ) -> Dict[RelationSymbol, Formula]:
         fixpoint_relation_symbols = []
 
-        for sentence in theory.sentences:
-            if isinstance(sentence, FixpointDefinition) and \
-            sentence.relation_symbol in lemma_language.relation_symbols:
-                fixpoint_relation_symbols.append(sentence.relation_symbol)
+        for definition in theory.get_fixpoint_definitions():
+            if definition.relation_symbol in lemma_language.relation_symbols:
+                fixpoint_relation_symbols.append(definition.relation_symbol)
 
         templates: Dict[RelationSymbol, Formula] = OrderedDict() # template for each fixpoint relation
         free_vars = tuple(Variable(f"x{i}", foreground_sort) for i in range(additional_free_vars))
@@ -206,7 +205,7 @@ class FOSSIL:
                 #     print(f"- {lemma}")
 
                 if use_type1_models:
-                    type1_model = FOSSIL.generate_finite_example(Theory(extended_language, ()), foreground_sort, conjuncts)
+                    type1_model = FOSSIL.generate_finite_example(Theory.empty_theory(extended_language), foreground_sort, conjuncts)
 
                 # print("*** found type 1 model")
 
@@ -277,7 +276,7 @@ class FOSSIL:
                         else:
                             # print("*** type 2 model not found, finding type 3 model")
                             # no bounded LFP model found
-                            type3_model = FOSSIL.generate_finite_example(Theory(extended_language, ()), foreground_sort, conjuncts)
+                            type3_model = FOSSIL.generate_finite_example(Theory.empty_theory(extended_language), foreground_sort, conjuncts)
                             assert type3_model is not None
 
                             print(" (type 3)")

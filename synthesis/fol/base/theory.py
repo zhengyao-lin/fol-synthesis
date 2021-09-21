@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple, Iterable, Optional
+from typing import Tuple, Iterable, Optional, Dict
 from dataclasses import dataclass
 
 from .language import BaseAST, RelationSymbol
@@ -90,30 +90,60 @@ class Axiom(Sentence):
 @dataclass(frozen=True)
 class Theory(BaseAST):
     language: Language
-    sentences: Tuple[Sentence, ...]
+    fixpoint_definitions: Mapping[RelationSymbol, FixpointDefinition]
+    axioms: Tuple[Axiom, ...]
+
+    @staticmethod
+    def empty_theory(language: Language) -> Theory:
+        return Theory(language, {}, ())
 
     def extend_axioms(self, axioms: Iterable[Formula]) -> Theory:
         return Theory(
             self.language,
-            self.sentences + tuple(map(Axiom, axioms)),
+            self.fixpoint_definitions,
+            self.axioms + tuple(map(Axiom, axioms)),
+        )
+
+    def combine(self, theory: Theory) -> Theory:
+        overlapping_fixpoints = set(self.fixpoint_definitions.keys()).intersection(theory.fixpoint_definitions.keys())
+        assert len(overlapping_fixpoints) == 0, \
+               f"overlapping fixpoint definitions of {overlapping_fixpoints}"
+
+        return Theory(
+            self.language.expand(theory.language),
+            { **self.fixpoint_definitions, **theory.fixpoint_definitions },
+            self.axioms + theory.axioms,
         )
 
     def find_fixpoint_definition(self, relation_symbol: RelationSymbol) -> Optional[FixpointDefinition]:
-        for sentence in self.sentences:
-            if isinstance(sentence, FixpointDefinition) and \
-               sentence.relation_symbol == relation_symbol:
-                return sentence
-
-        return None
+        return self.fixpoint_definitions.get(relation_symbol)
 
     def remove_fixpoint_definition(self, name: str) -> Theory:
         """
         Remove a fixpoint definition from the theory
         """
-        sentences = tuple(
-            sentence
-            for sentence in self.sentences
-            if not isinstance(sentence, FixpointDefinition) or sentence.relation_symbol.name != name
-        )
+        for symbol in self.fixpoint_definitions:
+            if symbol.name == name:
+                return Theory(
+                    self.language,
+                    { k: v for k, v in self.fixpoint_definitions.items() if k != symbol },
+                    self.axioms,
+                )
 
-        return Theory(self.language, sentences)
+        return self
+
+    def get_axioms(self) -> Iterable[Axiom]:
+        return self.axioms
+
+    def get_fixpoint_definitions(self) -> Iterable[FixpointDefinition]:
+        return self.fixpoint_definitions.values()
+
+    def convert_to_fo_theory(self) -> Iterable[Formula]:
+        """
+        Get a first order abstraction of the theory,
+        where fixpoint definitions are converted to
+        a first order sentence
+        """
+        return tuple(axiom.formula for axiom in self.axioms) + \
+               tuple(definition.as_formula() for definition in self.fixpoint_definitions.values())
+

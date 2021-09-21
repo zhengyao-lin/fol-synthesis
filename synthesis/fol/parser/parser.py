@@ -15,9 +15,19 @@ class ASTTransformer(Transformer[BaseAST]):
         assert value.startswith("\"") and value.endswith("\"")
         return value[1:-1]
 
+    def theories(self, args: List[UnresolvedTheory]) -> Tuple[UnresolvedTheory, ...]:
+        return tuple(args)
+
     def theory(self, args: List[Any]) -> UnresolvedTheory:
         name, sentences = args
-        return UnresolvedTheory(name, tuple(sentences))
+        return UnresolvedTheory(name, (), Language((), (), ()), sentences)
+
+    def extended_theory(self, args: List[Any]) -> UnresolvedTheory:
+        name, base_theories, sentences = args
+        return UnresolvedTheory(name, base_theories, Language((), (), ()), sentences)
+
+    def subtheories(self, args: List[Any]) -> Tuple[str, ...]:
+        return tuple(args)
 
     def attribute(self, args: List[str]) -> Attribute:
         name, *arguments = args
@@ -155,7 +165,10 @@ class Parser:
         identifier: IDENTIFIER
         string: STRING
 
+        theories: theory+
+
         theory: "theory" identifier sentences "end"
+              | "theory" identifier "extending" subtheories sentences "end" -> extended_theory
 
         attribute: identifier "(" string ["," string]* ")"
                  | identifier
@@ -163,7 +176,7 @@ class Parser:
         attributes: ["[" attribute ["," attribute]* "]"]
 
         sentences: [sentence sentence*]
-        subtheories: [identifier identifier*]
+        subtheories: identifier+
 
         sentence: "sort" identifier attributes                                             -> sort_definition
                 | "function" identifier ":" identifier+ "->" identifier attributes         -> function_definition
@@ -219,6 +232,14 @@ class Parser:
         propagate_positions=True,
     )
 
+    THEORIES_PARSER = Lark(
+        SYNTAX,
+        start="theories",
+        parser="lalr",
+        lexer="standard",
+        propagate_positions=True,
+    )
+
     TERM_PARSER = Lark(
         SYNTAX,
         start="term",
@@ -241,6 +262,13 @@ class Parser:
         theory = ASTTransformer().transform(ast)
         assert isinstance(theory, UnresolvedTheory)
         return Resolver.resolve_theory(theory)
+
+    @staticmethod
+    def parse_theories(src: str) -> Dict[str, Theory]:
+        ast = Parser.THEORIES_PARSER.parse(src)
+        theories = ASTTransformer().transform(ast)
+        assert isinstance(theories, tuple)
+        return Resolver.resolve_theories(theories)
 
     @staticmethod
     def parse_term(language: Language, src: str) -> Term:

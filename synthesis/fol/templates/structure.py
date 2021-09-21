@@ -93,14 +93,9 @@ class FOModelTemplate(UninterpretedStructureTemplate):
         The model should satify all sentences in the theory
         """
         constraint = smt.TRUE()
-        
-        for sentence in self.theory.sentences:
-            if isinstance(sentence, Axiom):
-                constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
-            elif isinstance(sentence, FixpointDefinition):
-                constraint = smt.And(sentence.as_formula().interpret(self, {}), constraint)
-            else:
-                assert False, f"unsupported sentence {sentence}"
+
+        for formula in self.theory.convert_to_fo_theory():
+            constraint = smt.And(formula.interpret(self, {}), constraint)
 
         return constraint
 
@@ -151,14 +146,9 @@ class FiniteFOModelTemplate(UninterpretedStructureTemplate):
                     closed_constraint = carrier.universally_quantify(var, closed_constraint)
 
                 constraint = smt.And(closed_constraint, constraint)
-        
-        for sentence in self.theory.sentences:
-            if isinstance(sentence, Axiom):
-                constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
-            elif isinstance(sentence, FixpointDefinition):
-                constraint = smt.And(sentence.as_formula().interpret(self, {}), constraint)
-            else:
-                assert False, f"unsupported sentence {sentence}"
+
+        for formula in self.theory.convert_to_fo_theory():
+            constraint = smt.And(formula.interpret(self, {}), constraint)
 
         return constraint
 
@@ -247,23 +237,21 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
         self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = OrderedDict()
 
         # for any fixpoint definition, add a rank function
-        for sentence in theory.sentences:
-            if isinstance(sentence, FixpointDefinition):
-                relation_symbol = sentence.relation_symbol
-                assert relation_symbol not in self.rank_functions, \
-                       f"duplicate fixpoint definition for {relation_symbol}"
-                smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
-                self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
+        for definition in theory.get_fixpoint_definitions():
+            relation_symbol = definition.relation_symbol
+            assert relation_symbol not in self.rank_functions, \
+                    f"duplicate fixpoint definition for {relation_symbol}"
+            smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
+            self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
 
     def get_constraint(self) -> smt.SMTTerm:
         """
         The model should satify all sentences in the theory
         """
         constraint = super().get_constraint()
-        
-        for sentence in self.theory.sentences:
-            if isinstance(sentence, FixpointDefinition):
-                constraint = smt.And(self.get_constraints_for_least_fixpoint(sentence), constraint)
+
+        for definition in self.theory.get_fixpoint_definitions():
+            constraint = smt.And(self.get_constraints_for_least_fixpoint(definition), constraint)
 
         return constraint
 
@@ -331,11 +319,10 @@ class FOProvableStructureTemplate(UninterpretedStructureTemplate):
 
         # unfold LFP definitions
         overrides = OrderedDict()
-        for sentence in theory.sentences:
-            if isinstance(sentence, FixpointDefinition):
-                unfolded_definition = sentence.unfold_definition(unfold_depth)
-                overrides[sentence.relation_symbol] = \
-                    self.interpret_fixpoint_definition(unfolded_definition)
+        for definition in theory.get_fixpoint_definitions():
+            unfolded_definition = definition.unfold_definition(unfold_depth)
+            overrides[definition.relation_symbol] = \
+                self.interpret_fixpoint_definition(unfolded_definition)
 
         self.relation_interpretations.update(overrides)
 
@@ -343,9 +330,8 @@ class FOProvableStructureTemplate(UninterpretedStructureTemplate):
         # NOTE: fixpoint axioms are not included here
 
         constraint = smt.TRUE()
-        for sentence in self.theory.sentences:
-            if isinstance(sentence, Axiom):
-                constraint = smt.And(sentence.formula.interpret(self, {}), constraint)
+        for axiom in self.theory.get_axioms():
+            constraint = smt.And(axiom.formula.interpret(self, {}), constraint)
         
         return constraint
 

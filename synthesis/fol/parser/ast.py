@@ -91,7 +91,9 @@ class UnresolvedFixpointDefinition(Sentence):
     definition: Formula
 
 
-@dataclass(frozen=True)
+@dataclass
 class UnresolvedTheory(BaseAST):
     name: str
+    base_theory_names: Tuple[str, ...]
+    language: Language
     sentences: Tuple[Sentence, ...]

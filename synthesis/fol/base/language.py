@@ -100,10 +100,11 @@ class Language:
         sort_name_set = set(sort_names)
         function_name_set = set(function_names)
         relation_name_set = set(relation_names)
+        
         return Language(
-            tuple(sort for sort in self.sorts if sort.name in sort_name_set),
-            tuple(function_symbol for function_symbol in self.function_symbols if function_symbol.name in function_name_set),
-            tuple(relation_symbol for relation_symbol in self.relation_symbols if relation_symbol.name in relation_name_set),
+            tuple(self.get_sort(sort_name) for sort_name in sort_name_set),
+            tuple(self.get_function_symbol(function_name) for function_name in function_name_set),
+            tuple(self.get_relation_symbol(relation_name) for relation_name in relation_name_set),
         )
 
     def get_fresh_function_name(self, prefix: str) -> str:
@@ -149,23 +150,24 @@ class Language:
         return max(tuple(len(symbol.input_sorts) for symbol in self.relation_symbols) + (0,))
 
     def expand(self, other: Language) -> Language:
-        for sort in other.sorts:
-            assert sort not in self.sorts, f"duplicate sort {sort}"
+        """
+        Add new sort/function/relation symbols from the given language
+        """
 
-        for function_symbol in other.function_symbols:
-            assert function_symbol not in self.function_symbols, f"duplicate function symbol {function_symbol}"
-
-        for relation_symbol in other.relation_symbols:
-            assert relation_symbol not in self.relation_symbols, f"duplicate relation symbol {relation_symbol}"
+        new_sorts = tuple(sort for sort in other.sorts if sort not in self.sorts)
+        new_functions = tuple(function for function in other.function_symbols if function not in self.function_symbols)
+        new_relations = tuple(relation for relation in other.relation_symbols if relation not in self.relation_symbols)
 
         return Language(
-            self.sorts + other.sorts,
-            self.function_symbols + other.function_symbols,
-            self.relation_symbols + other.relation_symbols,
+            self.sorts + new_sorts,
+            self.function_symbols + new_functions,
+            self.relation_symbols + new_relations,
         )
 
     def expand_with_function(self, symbol: FunctionSymbol) -> Language:
-        # TODO: check conflicts
+        if symbol in self.function_symbols:
+            return self
+            
         return Language(
             self.sorts,
             self.function_symbols + (symbol,),

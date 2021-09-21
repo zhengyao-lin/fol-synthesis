@@ -313,16 +313,20 @@ class FOProvableStructureTemplate(UninterpretedStructureTemplate):
     """
 
     def __init__(self, theory: Theory, unfold_depth: int):
+        assert unfold_depth >= 0
+
         super().__init__(theory.language)
 
         self.theory = theory
 
         # unfold LFP definitions
         overrides = OrderedDict()
-        for definition in theory.get_fixpoint_definitions():
-            unfolded_definition = definition.unfold_definition(unfold_depth)
-            overrides[definition.relation_symbol] = \
-                self.interpret_fixpoint_definition(unfolded_definition)
+
+        if unfold_depth != 0:
+            for definition in theory.get_fixpoint_definitions():
+                unfolded_definition = definition.unfold_definition(unfold_depth - 1)
+                overrides[definition.relation_symbol] = \
+                    self.interpret_fixpoint_definition(unfolded_definition)
 
         self.relation_interpretations.update(overrides)
 

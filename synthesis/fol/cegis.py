@@ -24,12 +24,13 @@ class CEGISynthesizer:
 
     def synthesize_for_model_classes(
         self,
-        templates: Tuple[Formula, ...],
+        templates: Iterable[Formula],
         trivial_model: StructureTemplate,
         goal_model: StructureTemplate,
         *_: Any,
         solver_name: str = "z3",
-    ) -> Generator[Formula, None, None]:
+        debug: bool = True,
+    ) -> Generator[Tuple[Formula, Optional[Structure]], None, None]:
         """
         Given a class of models C_1 (described by <trivial_model>)
         and another class of models C_2 (described by <goal_model>)
@@ -58,7 +59,8 @@ class CEGISynthesizer:
             check_solver.add_assertion(goal_model.get_constraint())
 
             for template in templates:
-                print(f"### synthesizing formulas of the form {template}")
+                if debug:
+                    print(f"### synthesizing formulas of the form {template}")
 
                 with self.solver_push(gen_solver):
                     gen_solver.add_assertion(template.get_constraint())
@@ -88,7 +90,7 @@ class CEGISynthesizer:
 
                     while gen_solver.solve():
                         candidate = template.get_from_smt_model(gen_solver.get_model())
-                        print(candidate, "... ", end="", flush=True)
+                        if debug: print(candidate, "... ", end="", flush=True)
 
                         # check if the candidate is valid in all goal models
                         with self.solver_push(check_solver):
@@ -96,16 +98,15 @@ class CEGISynthesizer:
 
                             if check_solver.solve():
                                 # found counterexample
-                                print("✘")
+                                if debug: print("✘")
                                 counterexample = goal_model.get_from_smt_model(check_solver.get_model())
                                 counterexamples.append(counterexample)
+                                yield candidate, counterexample
                                 gen_solver.add_assertion(template.quantify_all_free_variables().interpret(counterexample, {}))
-
-                                # print(counterexample)
 
                             else:
                                 # no conuterexample found
-                                print("✓")
-                                yield candidate
+                                if debug: print("✓")
+                                yield candidate, None
                                 synthesized_formulas.append(candidate)
                                 gen_solver.add_assertion(candidate.quantify_all_free_variables().interpret(trivial_model, {}))

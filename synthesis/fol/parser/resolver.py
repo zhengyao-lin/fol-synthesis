@@ -355,12 +355,12 @@ class Resolver:
         for sentence in theory.sentences:
             if isinstance(sentence, UnresolvedFunctionDefinition):
                 assert sentence.output_sort in sort_map, \
-                       f"unknown sort {sentence.output_sort}"
+                       f"unknown sort {sentence.output_sort} in theory {theory.name}"
                 output_sort = sort_map[sentence.output_sort]
 
                 input_sorts = []
                 for name in sentence.input_sorts:
-                    assert name in sort_map, f"unknown sort {name}"
+                    assert name in sort_map, f"unknown sort {name} in theory {theory.name}"
                     input_sorts.append(sort_map[name])
 
                 smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
@@ -370,13 +370,13 @@ class Resolver:
                     smt_hook = None
 
                 assert sentence.name not in function_symbols, \
-                       f"duplicated function symbol {sentence.name}"
+                       f"duplicated function symbol {sentence.name} in theory {theory.name}"
                 function_symbols[sentence.name] = FunctionSymbol(tuple(input_sorts), output_sort, sentence.name, smt_hook)
 
             elif isinstance(sentence, UnresolvedRelationDefinition):
                 input_sorts = []
                 for name in sentence.input_sorts:
-                    assert name in sort_map, f"unknown sort {name}"
+                    assert name in sort_map, f"unknown sort {name} in theory {theory.name}"
                     input_sorts.append(sort_map[name])
 
                 smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
@@ -386,7 +386,7 @@ class Resolver:
                     smt_hook = None
 
                 assert sentence.name not in relation_symbols, \
-                       f"duplicated relation symbol {sentence.name}"
+                       f"duplicated relation symbol {sentence.name} in theory {theory.name}"
                 relation_symbols[sentence.name] = RelationSymbol(tuple(input_sorts), sentence.name, smt_hook)
 
             elif not isinstance(sentence, UnresolvedSortDefinition):

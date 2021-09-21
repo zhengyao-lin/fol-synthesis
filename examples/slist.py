@@ -27,7 +27,7 @@ theory SLIST
 
     fixpoint slist(x) = eq(x, nil()) \/ eq(next(x), nil()) \/ (le_int(key(x), key(next(x))) /\ slist(next(x)) /\ not in_lseg(x, next(x), nil()))
 
-    fixpoint slseg(x, y) = eq(x, y) \/ (le_int(key(x), key(next(x))) /\ lseg(next(x), y) /\ not in_lseg(x, next(x), y))
+    fixpoint slseg(x, y) = eq(x, y) \/ (le_int(key(x), key(next(x))) /\ slseg(next(x), y) /\ not in_lseg(x, next(x), y))
 end
 """)
 

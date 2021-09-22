@@ -45,16 +45,16 @@ theory LSEGR extending LIST
     fixpoint lsegr(x, y) = x = y \/ (exists z: Pointer. next(z) = y /\ lsegr(x, z))
 end
 
-theory LIST1 extending LIST INT
+theory LISTLEN extending LIST INT
     constant l: Int
 
     // list of length l
-    relation list1: Pointer Int
-    fixpoint list1(x, l) =
+    relation listlen: Pointer Int
+    fixpoint listlen(x, l) =
         (x = nil() /\ l = zero()) \/
         (
             x != nil() /\
-            list1(next(x), minus(l, one())) /\
+            listlen(next(x), minus(l, one())) /\
             not in_lsegf(x, next(x), nil())
         )
 end
@@ -85,16 +85,16 @@ theory DLIST extending LIST
         )
 end
 
-theory DLIST1 extending DLIST INT
+theory DLISTLEN extending DLIST INT
     constant l: Int
 
     // list of length l
-    relation dlist1: Pointer Int
-    fixpoint dlist1(x, l) =
+    relation dlistlen: Pointer Int
+    fixpoint dlistlen(x, l) =
         (x = nil() /\ l = zero()) \/ (next(x) = nil() /\ l = one()) \/
         (
             prev(next(x)) = x /\
-            dlist1(next(x), minus(l, one())) /\
+            dlistlen(next(x), minus(l, one())) /\
             not in_lsegf(x, next(x), nil()) /\
             not in_lsegb(x, nil(), prev(x))
         )
@@ -131,17 +131,17 @@ theory SLIST extending LIST INT
         )
 end
 
-theory SLIST1 extending SLIST INT
+theory SLISTLEN extending SLIST INT
     constant l: Int
 
     // list of length l
-    relation slist1: Pointer Int
-    fixpoint slist1(x, l) =
+    relation slistlen: Pointer Int
+    fixpoint slistlen(x, l) =
         (x = nil() /\ l = zero()) \/
         (next(x) = nil() /\ l = one()) \/
         (
             le_int(key(x), key(next(x))) /\
-            slist1(next(x), minus(l, one())) /\
+            slistlen(next(x), minus(l, one())) /\
             not in_lsegf(x, next(x), nil())
         )
 end
@@ -182,200 +182,174 @@ theory BST extending BTREE-BASE INT
 end
 """)
 
-
-def synthesize(theory: Theory, templates: Iterable[Formula], unfold_depth: int) -> None:
-    sort_pointer = theory_map["HEAP"].language.get_sort("Pointer")
-    trivial_model = FOProvableStructureTemplate(theory, unfold_depth=unfold_depth)
-    goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 })
-
-    for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(templates, trivial_model, goal_model, debug=False):
-        if counterexample is None:
-            print(candidate)
-
-
 sort_pointer = theory_map["HEAP"].language.get_sort("Pointer")
 
 x = Variable("x", sort_pointer)
 y = Variable("y", sort_pointer)
 z = Variable("z", sort_pointer)
 
-#################
-#### Lemma 1 ####
-#################
+###################
+#### Lemma 1-4 ####
+###################
 
-# language = theory_map["LIST1"].language.get_sublanguage(
-#     ("Pointer",),
-#     ("nil", "l"),
-#     ("list1", "list"),
-# )
+theory = theory_map["LISTLEN"]
+language = theory.language.get_sublanguage(
+    ("Pointer",),
+    ("nil", "l"),
+    ("listlen", "list", "lseg"),
+)
+listlen_symbol = theory.language.get_relation_symbol("listlen")
 
-# synthesize(
-#     theory_map["LIST1"],
-#     (
-#         Implication(
-#             AtomicFormulaTemplate(language, (x,), 0),
-#             AtomicFormulaTemplate(language, (x,), 0),
-#         ),
-#     ),
-#     unfold_depth=2,
-# )
-
-####################
-#### Lemmas 2-4 ####
-####################
-
-# language = theory_map["LIST"].language.get_sublanguage(
-#     ("Pointer",),
-#     ("nil",),
-#     ("list", "lseg"),
-# )
-
-# synthesize(
-#     theory_map["LIST"],
-#     (
-#         Implication(
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#         ),
-#         Implication(
-#             Conjunction(
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#             ),
-#             AtomicFormulaTemplate(language, (x, y, z), 0),
-#         ),
-#         Implication(
-#             Conjunction(
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#             ),
-#             Disjunction(
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#             ),
-#         ),
-#     ),
-#     unfold_depth=1,
-# )
+for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+    (
+        Implication(
+            AtomicFormulaTemplate(language, (x,), 0),
+            AtomicFormulaTemplate(language, (x,), 0),
+        ),
+        Implication(
+            AtomicFormulaTemplate(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
+        ),
+        Implication(
+            Conjunction(
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+            ),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+        ),
+        Implication(
+            Conjunction(
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+            ),
+            Disjunction(
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+            ),
+        ),
+    ),
+    trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ listlen_symbol: 1 }),
+    debug=False,
+):
+    if counterexample is None: print(candidate)
 
 ##################
 #### Lemmas 5 ####
 ##################
 
-# language = theory_map["LSEGR"].language.get_sublanguage(
-#     ("Pointer",),
-#     ("nil",),
-#     ("lsegr", "lseg"),
-# )
-
-# synthesize(
-#     theory_map["LSEGR"],
-#     (
-#         Implication(
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#         ),
-#     ),
-#     unfold_depth=1,
-# )
-
-####################
-#### Lemmas 6-8 ####
-####################
-
-# language = theory_map["DLIST1"].language.get_sublanguage(
-#     ("Pointer",),
-#     ("nil", "l"),
-#     ("dlist1", "dlist", "dlseg", "list"),
-# )
-
-# synthesize(
-#     theory_map["DLIST1"],
-#     (
-#         Implication(
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#         ),
-#         Implication(
-#             Conjunction(
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#             ),
-#             AtomicFormulaTemplate(language, (x, y, z), 0),
-#         ),
-#     ),
-#     unfold_depth=1,
-# )
-
-######################
-#### Lemmas 10-12 ####
-######################
-
-language = theory_map["SLIST1"].language.get_sublanguage(
+theory = theory_map["LSEGR"]
+language = theory.language.get_sublanguage(
     ("Pointer",),
-    ("nil", "l"),
-    ("slist1", "slist"),
+    ("nil",),
+    ("lsegr", "lseg"),
 )
 
-synthesize(
-    theory_map["SLIST1"],
+for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaTemplate(language, (x,), 0),
             AtomicFormulaTemplate(language, (x,), 0),
         ),
     ),
-    unfold_depth=1,
+    trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
+    debug=False,
+):
+    if counterexample is None: print(candidate)
+
+####################
+#### Lemmas 6-8 ####
+####################
+
+theory = theory_map["DLISTLEN"]
+language = theory.language.get_sublanguage(
+    ("Pointer",),
+    ("nil", "l"),
+    ("dlistlen", "dlist", "dlseg", "list"),
 )
+dlistlen_symbol = theory.language.get_relation_symbol("dlistlen")
 
-# language = theory_map["SLIST"].language.get_sublanguage(
-#     ("Pointer",),
-#     ("nil",),
-#     ("slist", "slseg", "list"),
-# )
+for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+    (
+        Implication(
+            AtomicFormulaTemplate(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
+        ),
+        Implication(
+            Conjunction(
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+            ),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+        ),
+    ),
+    trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ dlistlen_symbol: 1 }),
+    debug=False,
+):
+    if counterexample is None: print(candidate)
 
-# synthesize(
-#     theory_map["SLIST1"],
-#     (
-#         Implication(
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#             AtomicFormulaTemplate(language, (x, y), 0),
-#         ),
-#         Implication(
-#             Conjunction(
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#                 AtomicFormulaTemplate(language, (x, y, z), 0),
-#             ),
-#             AtomicFormulaTemplate(language, (x, y, z), 0),
-#         ),
-#     ),
-#     unfold_depth=1,
-# )
+######################
+#### Lemmas 10-12 ####
+######################
+
+theory = theory_map["SLISTLEN"]
+language = theory.language.get_sublanguage(
+    ("Pointer",),
+    ("nil", "l"),
+    ("slistlen", "slist", "slseg", "list"),
+)
+slistlen_symbol = theory.language.get_relation_symbol("slistlen")
+
+for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+    (
+        Implication(
+            AtomicFormulaTemplate(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
+        ),
+        Implication(
+            Conjunction(
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+                AtomicFormulaTemplate(language, (x, y, z), 0),
+            ),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+        ),
+    ),
+    trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ slistlen_symbol: 1 }),
+    debug=False,
+):
+    if counterexample is None: print(candidate)
 
 ######################
 #### Lemmas 13-14 ####
 ######################
 
-# language = theory_map["BST"].language.get_sublanguage(
-#     ("Pointer",),
-#     ("nil", "c", "key"),
-#     ("btree", "bst", "leftmost", "le_int", "ne_pointer"),
-# )
+theory = theory_map["BST"]
+language = theory.language.get_sublanguage(
+    ("Pointer",),
+    ("nil", "c", "key"),
+    ("btree", "bst", "leftmost", "le_int", "ne_pointer"),
+)
+leftmost_symbol = theory.language.get_relation_symbol("leftmost")
 
-# synthesize(
-#     theory_map["BST"],
-#     (
-#         Implication(
-#             AtomicFormulaTemplate(language, (x,), 0),
-#             AtomicFormulaTemplate(language, (x,), 0),
-#         ),
-#         Implication(
-#             Conjunction.from_conjuncts(
-#                 AtomicFormulaTemplate(language, (x,), 0),
-#                 AtomicFormulaTemplate(language, (x,), 0),
-#             ),
-#             AtomicFormulaTemplate(language, (x,), 1),
-#         ),
-#     ),
-#     unfold_depth=1,
-# )
+for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+    (
+        Implication(
+            AtomicFormulaTemplate(language, (x, y), 0),
+            AtomicFormulaTemplate(language, (x, y), 0),
+        ),
+        Implication(
+            Conjunction(
+                AtomicFormulaTemplate(language, (x, y), 0),
+                AtomicFormulaTemplate(language, (x, y), 0),
+            ),
+            AtomicFormulaTemplate(language, (x, y), 1),
+        ),
+    ),
+    trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ leftmost_symbol: 2 }),
+    debug=False,
+):
+    if counterexample is None: print(candidate)

@@ -231,8 +231,23 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
     least fixpoints.
     """
 
-    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
+    def __init__(
+        self,
+        theory: Theory,
+        size_bounds: Mapping[Sort, int],
+        fixpoint_bounds: Mapping[RelationSymbol, int] = {},
+        # each relation R defined by fixpoint lies in R_1 x ... x R_n
+        # Suppose R_1 x ... x R_m, m < n, is finite,
+        # Then we put a bound on the size of each slice R(x_1, ..., x_m)
+        # for any x_1, ..., x_m in R_1 x ... x R_m
+    ):
         super().__init__(theory, size_bounds)
+
+        # domains of finite fixpoint relations
+        # A fixpoint relation is finite if
+        #   - all of the input sorts are interpreted as finite sets in this structure
+        #   - or, the relation has an explicit bound in <fixpoint_bounds>
+        self.finite_fixpoint_domains: Dict[RelationSymbol, Tuple[Tuple[smt.SMTTerm, ...], ...]] = {}
 
         self.rank_functions: Dict[RelationSymbol, smt.SMTFunction] = OrderedDict()
 
@@ -240,9 +255,90 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
         for definition in theory.get_fixpoint_definitions():
             relation_symbol = definition.relation_symbol
             assert relation_symbol not in self.rank_functions, \
-                    f"duplicate fixpoint definition for {relation_symbol}"
+                   f"duplicate fixpoint definition for {relation_symbol}"
             smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
             self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
+
+            finite_domain = self.get_finite_domain(relation_symbol, fixpoint_bounds)
+
+            if finite_domain is not None:
+                self.finite_fixpoint_domains[relation_symbol] = finite_domain
+                self.override_finite_fixpoint(relation_symbol, finite_domain)
+
+    def get_finite_domain(
+        self,
+        relation_symbol: RelationSymbol,
+        fixpoint_bounds: Mapping[RelationSymbol, int],
+    ) -> Optional[Tuple[Tuple[smt.SMTTerm, ...], ...]]:
+        """
+        Check if the domain of a relation can be made finite,
+        if so, return SMT representations of the domain elements,
+        otherwise, return None
+        """
+
+        domains: List[Tuple[Optional[smt.SMTTerm], ...]] = []
+        non_finite_sorts: List[smt.SMTSort] = []
+        is_finite = True
+
+        # if all sorts are interpreted finitely, then the relation is finite
+        for input_sort in relation_symbol.input_sorts:
+            if input_sort.smt_hook is not None:
+                is_finite = False
+                non_finite_sorts.append(self.get_smt_sort(input_sort))
+                domains.append((None,))
+            else:
+                carrier = self.interpret_sort(input_sort)
+                assert isinstance(carrier, FiniteCarrierSet)
+                domains.append(carrier.domain)
+        
+        if is_finite:
+            return tuple(itertools.product(*domains))
+
+        elif relation_symbol in fixpoint_bounds:
+            finite_domain: List[Tuple[smt.SMTTerm, ...]] = []
+
+            # otherwise, the relation is finite if we specify a bound
+            for finite_slice in itertools.product(*domains):
+                for _ in range(fixpoint_bounds[relation_symbol]):
+                    non_finite_instance = tuple(smt.FreshSymbol(smt_sort) for smt_sort in non_finite_sorts)
+                    non_finite_index = 0
+                    instance: List[smt.SMTTerm] = []
+
+                    for term in finite_slice:
+                        if term is None:
+                            assert non_finite_index < len(non_finite_instance)
+                            instance.append(non_finite_instance[non_finite_index])
+                            non_finite_index += 1
+                        else:
+                            instance.append(term)
+
+                    finite_domain.append(tuple(instance))
+
+            return tuple(finite_domain)
+
+        return None
+
+    def override_finite_fixpoint(self, relation_symbol: RelationSymbol, domain: Tuple[Tuple[smt.SMTTerm, ...], ...]) -> None:
+        """
+        Create a more compact representation of the relation using the given domain
+        """
+        switches: List[
+            Tuple[
+                Tuple[Tuple[smt.SMTTerm, ...], ...],
+                smt.SMTTerm,
+            ]
+        ] = [ (elem, smt.FreshSymbol(smt.BOOL)) for elem in domain ]
+
+        def relation(*args: smt.SMTTerm) -> smt.SMTTerm:
+            return smt.Or(
+                smt.And(
+                    smt.And(smt.Equals(a, b) for a, b in zip(args, elem)),
+                    switch,
+                )
+                for elem, switch in switches
+            )
+
+        self.relation_interpretations[relation_symbol] = relation
 
     def get_constraint(self) -> smt.SMTTerm:
         """
@@ -298,9 +394,15 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
         )
 
         # forall. R(...) -> phi((f(...) < f(x)  /\ R(...)) / R(...))
-        for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
-            carrier = self.interpret_sort(sort)
-            rank_invariant = carrier.universally_quantify(var, rank_invariant)
+        if relation_symbol in self.finite_fixpoint_domains:
+            rank_invariant = smt.And(
+                rank_invariant.substitute(dict(zip(smt_input_vars, elem)))
+                for elem in self.finite_fixpoint_domains[relation_symbol]
+            )
+        else:
+            for var, sort in zip(smt_input_vars, relation_symbol.input_sorts):
+                carrier = self.interpret_sort(sort)
+                rank_invariant = carrier.universally_quantify(var, rank_invariant)
 
         return smt.And(non_negative_constraint, rank_invariant)
 

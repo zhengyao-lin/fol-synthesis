@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, Generator
 from enum import Enum
 from collections import OrderedDict
 
@@ -269,7 +269,7 @@ class NaturalProof:
         foreground_sort: Sort,
         formulas: Tuple[Formula, ...],
         depth: int,
-    ) -> Tuple[Formula, ...]:
+    ) -> Generator[Formula, None, None]:
         """
         Do term instantiation up to depth <depth> and returns the list of (quantifier free) concrete formulas
 
@@ -299,7 +299,7 @@ class NaturalProof:
         assert depth >= 0, f"invalid depth {depth}"
 
         for _ in range(depth): # TODO: need to align with the depth in the paper
-            previous_size = len(instantiated_formulas)
+            has_new_formula = False
 
             # use previous ground terms to instantiate new formulas
             for formula in formulas:
@@ -310,20 +310,24 @@ class NaturalProof:
                 for assignment in itertools.product(ordered_ground_terms, repeat=len(free_vars)):
                     substitution = dict(zip(free_vars, assignment))
                     instantiated_formula = formula.substitute(substitution)
-                    instantiated_formulas[instantiated_formula] = None
+
+                    if instantiated_formula not in instantiated_formulas:
+                        instantiated_formulas[instantiated_formula] = None
+                        has_new_formula = True
+
+                        # new formula
+                        yield instantiated_formula
 
                     # add new ground terms
                     for ground_term in NaturalProof.get_all_ground_terms(foreground_sort, instantiated_formula):
                         ground_terms[ground_term] = None
 
             # already converged
-            if len(instantiated_formulas) == previous_size:
-                return tuple(instantiated_formulas.keys())
-
-        return tuple(instantiated_formulas.keys())
+            if not has_new_formula:
+                break
 
     @staticmethod
-    def encode_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[Language, Tuple[Formula, ...]]:
+    def encode_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[Language, Generator[Formula, None, None]]:
         """
         Reduce the FO-validity of the formula in the given theory (i.e. whether theory |= formula)
         to the unsatisfiability of the returned conjunction of quantifier free, concrete formulas.

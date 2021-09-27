@@ -58,10 +58,8 @@ end
 
 sort_pointer = theory.language.get_sort("Pointer")
 
-params = {
-    "use_type1_models": False,
-    "use_non_fo_provable_lemmas": True,
-}
+use_type1_models = False
+use_non_fo_provable_lemmas = True
 
 time_fn(lambda:
 FOSSIL.prove_lfp(
@@ -77,5 +75,6 @@ FOSSIL.prove_lfp(
     lemma_term_depth=0,
     lemma_formula_depth=0,
     true_counterexample_size_bound=6,
-    **params,
+    use_type1_models=use_type1_models,
+    use_non_fo_provable_lemmas=use_non_fo_provable_lemmas,
 ))

@@ -32,10 +32,8 @@ end
 
 sort_pointer = theory.language.get_sort("Pointer")
 
-params = {
-    "use_type1_models": False,
-    "use_non_fo_provable_lemmas": True,
-}
+use_type1_models = True
+use_non_fo_provable_lemmas = False
 
 time_fn(lambda:
 FOSSIL.prove_lfp(
@@ -50,8 +48,9 @@ FOSSIL.prove_lfp(
     natural_proof_depth=1,
     lemma_term_depth=0,
     lemma_formula_depth=0,
-    true_counterexample_size_bound=6,
-    **params,
+    true_counterexample_size_bound=4,
+    use_type1_models=use_type1_models,
+    use_non_fo_provable_lemmas=use_non_fo_provable_lemmas,
 ))
 
 time_fn(lambda:
@@ -66,9 +65,10 @@ FOSSIL.prove_lfp(
     Parser.parse_formula(theory.language, r"forall x: Pointer. lseg(x, nil()) -> list(x)"),
     natural_proof_depth=1,
     lemma_term_depth=0,
-    lemma_formula_depth=1,
-    true_counterexample_size_bound=6,
-    **params,
+    lemma_formula_depth=0,
+    true_counterexample_size_bound=4,
+    use_type1_models=use_type1_models,
+    use_non_fo_provable_lemmas=use_non_fo_provable_lemmas,
 ))
 
 time_fn(lambda:
@@ -86,5 +86,6 @@ FOSSIL.prove_lfp(
     lemma_formula_depth=1,
     true_counterexample_size_bound=4,
     additional_free_vars=1,
-    **params,
+    use_type1_models=use_type1_models,
+    use_non_fo_provable_lemmas=use_non_fo_provable_lemmas,
 ))

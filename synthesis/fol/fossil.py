@@ -1,4 +1,4 @@
-from typing import List, Dict, Iterable, Optional
+from typing import List, Dict, Iterable, Optional, Any
 from collections import OrderedDict
 
 from .base import *
@@ -114,20 +114,27 @@ class FOSSIL:
         return FOSSIL.get_induction_obligation(definition, formula)
 
     @staticmethod
-    def check_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> Tuple[bool, Language, Tuple[Formula, ...]]:
+    def check_validity(theory: Theory, foreground_sort: Sort, goal: Formula, depth: int) -> bool:
         """
         Return if the goal is FO-provable under the given theory
         """
         with FOSSIL.get_solver() as solver:
             extended_language, conjuncts = NaturalProof.encode_validity(theory, foreground_sort, goal, depth)
-            model = UninterpretedStructureTemplate(extended_language)
+            model = UninterpretedStructureTemplate(extended_language, default_sort=smt.INT)
 
             solver.add_assertion(model.get_constraint())
 
             for conjunct in conjuncts:
                 solver.add_assertion(conjunct.interpret(model, {}))
+                if not solver.solve():
+                    return True
 
-            return not solver.solve(), extended_language, conjuncts # unsat -> valid or sat -> unprovable
+            return False
+
+            # return not solver.solve(), extended_language, conjuncts # unsat -> valid or sat -> unprovable
+            # counterexample = model.get_from_smt_model(solver.get_model()) if result else None
+            # # print(counterexample)
+            # return not result, counterexample
 
     @staticmethod
     def generate_finite_example(theory: Theory, foreground_sort: Sort, formulas: Iterable[Formula], lfp: bool = False, max_model_size: Optional[int] = None) -> Optional[Structure]:
@@ -163,6 +170,7 @@ class FOSSIL:
         foreground_sort: Sort,
         lemma_language: Language,
         goal: Formula,
+        *_: Any,
         natural_proof_depth: int,
         lemma_term_depth: int,
         lemma_formula_depth: int,
@@ -170,12 +178,16 @@ class FOSSIL:
         additional_free_vars: int = 0, # additional number of free variables (universally quantified) that can appear on the RHS of each lemma
         use_non_fo_provable_lemmas: bool = False,
         use_type1_models: bool = True,
-    ) -> bool:
+        initial_lemmas: Iterable[Formula] = [],
+    ) -> Tuple[bool, Tuple[Formula, ...]]:
         """
         The FOSSIL algorithm with all three types of counterexamples
+
+        Return (True, lemmas) if provable
+        otherwise return (False, lemmas)
         """
 
-        lemmas: List[Formula] = []
+        lemmas: List[Formula] = list(initial_lemmas)
         lemma_templates = FOSSIL.get_lemma_template(theory, foreground_sort, lemma_language, lemma_term_depth, lemma_formula_depth, additional_free_vars)
         lemma_union_template = UnionFormulaTemplate(*lemma_templates.values()) # union of all lemma templates for each relation
 
@@ -194,18 +206,27 @@ class FOSSIL:
                 fo_provable_counterexample = FOProvableStructureTemplate(theory, unfold_depth=0) # TODO: depth
 
             while True:
-                validity, extended_language, conjuncts = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, goal, natural_proof_depth)
+                validity = FOSSIL.check_validity(
+                    theory.extend_axioms(lemmas),
+                    foreground_sort,
+                    goal,
+                    natural_proof_depth,
+                )
 
                 if validity:
                     print(f"### proved: {goal}")
-                    return True
+                    return True, tuple(lemmas)
 
                 # print(f"{goal} is unprovable with lemmas:")
                 # for lemma in lemmas:
                 #     print(f"- {lemma}")
 
+                # assert counterexample is not None
+
                 if use_type1_models:
-                    type1_model = FOSSIL.generate_finite_example(Theory.empty_theory(extended_language), foreground_sort, conjuncts)
+                    # type1_model = counterexample
+                    # type1_model = FOSSIL.generate_finite_example(Theory.empty_theory(extended_language), foreground_sort, conjuncts)
+                    type1_model = FOSSIL.generate_finite_example(theory.extend_axioms(lemmas), foreground_sort, [Negation(goal)])
 
                 # print("*** found type 1 model")
 
@@ -244,7 +265,7 @@ class FOSSIL:
                             lemma = lemma_union_template.get_from_smt_model(synth_solver.get_model())
                         else:
                             print(f"### lemmas exhausted, unable to prove: {goal}")
-                            return False
+                            return False, tuple(lemmas)
                         
                         print(f"### lemma: {lemma}", end="", flush=True)
 
@@ -254,17 +275,19 @@ class FOSSIL:
                         # print(lemma_pfp)
 
                         # sequential lemmas
-                        validity, extended_language, conjuncts = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, lemma_pfp, natural_proof_depth)
+                        validity = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, lemma_pfp, natural_proof_depth)
 
                         if validity:
                             # valid lemma, add it to the list
                             print(" - ✓")
                             lemmas.append(lemma)
                             break
-                        else:
-                            print(" - ✘", end="", flush=True)
-                            synth_solver.add_assertion(smt.Not(lemma_union_template.equals(lemma)))
-                            # print(f" - lemma is not valid, generating counterexamples")
+                        
+                        # assert counterexample is not None
+
+                        print(" - ✘", end="", flush=True)
+                        synth_solver.add_assertion(smt.Not(lemma_union_template.equals(lemma)))
+                        # print(f" - lemma is not valid, generating counterexamples")
 
                         # unprovable lemma, either get a finite LFP model or finite FO model to refute it
                         model = FOSSIL.generate_finite_example(theory, foreground_sort, (Negation(lemma),), lfp=True, max_model_size=true_counterexample_size_bound)
@@ -276,7 +299,9 @@ class FOSSIL:
                         else:
                             # print("*** type 2 model not found, finding type 3 model")
                             # no bounded LFP model found
-                            type3_model = FOSSIL.generate_finite_example(Theory.empty_theory(extended_language), foreground_sort, conjuncts)
+                            # type3_model = counterexample
+                            # type3_model = FOSSIL.generate_finite_example(Theory.empty_theory(extended_language), foreground_sort, conjuncts)
+                            type3_model = FOSSIL.generate_finite_example(theory.extend_axioms(lemmas), foreground_sort, [Negation(lemma_pfp)])
                             assert type3_model is not None
 
                             print(" (type 3)")

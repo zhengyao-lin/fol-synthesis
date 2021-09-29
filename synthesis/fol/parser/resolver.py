@@ -123,6 +123,7 @@ class CopyVisitor:
             definition.relation_symbol,
             tuple(self.visit(variable) for variable in definition.variables),
             self.visit(definition.definition),
+            definition.bound,
         )
 
     def visit_axiom(self, axiom: Axiom) -> Axiom:
@@ -176,6 +177,7 @@ class CopyVisitor:
             definition.name,
             definition.variables,
             self.visit(definition.definition),
+            definition.attributes,
         )
 
     def visit_unresolved_theory(self, theory: UnresolvedTheory) -> Union[Theory, UnresolvedTheory]:
@@ -245,7 +247,18 @@ class SymbolResolver(CopyVisitor):
                        f"the {i}-th argument of {definition.name} has sort {sort}, but the argument has sort annotation {variable.sort}"
             variables.append(Variable(variable.name, sort))
 
-        return FixpointDefinition(symbol, tuple(variables), self.visit(definition.definition))
+        bound: Optional[int] = None
+
+        for attribute in definition.attributes:
+            if attribute.name == "bound":
+                assert bound is None, f"duplicate attribute {attribute}"
+                assert len(attribute.arguments) == 1 and isinstance(attribute.arguments[0], int), \
+                       f"invalid attribute format {attribute}"
+                bound = attribute.arguments[0]
+            else:
+                assert False, f"unknown attribute {attribute}"
+
+        return FixpointDefinition(symbol, tuple(variables), self.visit(definition.definition), bound)
 
 
 class VariableSortResolver(CopyVisitor):
@@ -300,6 +313,7 @@ class VariableSortResolver(CopyVisitor):
             definition.relation_symbol,
             definition.variables,
             self.visit(definition.definition),
+            definition.bound,
         )
         self.sorting_environment = {}
 
@@ -314,8 +328,11 @@ class Resolver:
         """
         for attribute in attributes:
             if attribute.name == "smt":
-                assert len(attribute.arguments) == 1, "smt attribute requires exactly one argument"
+                assert len(attribute.arguments) == 1 and isinstance(attribute.arguments[0], str), \
+                       "smt attribute requires exactly one string argument"
                 return attribute.arguments[0]
+            else:
+                assert False, f"unknown attribute {attribute}"
         return None
 
     @staticmethod

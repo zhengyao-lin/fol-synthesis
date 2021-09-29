@@ -118,7 +118,7 @@ class FiniteFOModelTemplate(UninterpretedStructureTemplate):
                        f"no bound on the size of the carrier set of {sort}"
                 carrier = FiniteCarrierSet(
                     smt.INT,
-                    tuple(smt.FreshSymbol(smt.INT) for _ in range(size_bounds[sort]))
+                    tuple(smt.Int(i) for i in range(size_bounds[sort]))
                 )
                 self.carriers[sort] = carrier
 
@@ -259,7 +259,7 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
             smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
             self.rank_functions[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.INT)
 
-            finite_domain = self.get_finite_domain(relation_symbol, fixpoint_bounds)
+            finite_domain = self.get_finite_domain(relation_symbol, fixpoint_bounds.get(relation_symbol, definition.bound))
 
             if finite_domain is not None:
                 self.finite_fixpoint_domains[relation_symbol] = finite_domain
@@ -268,7 +268,7 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
     def get_finite_domain(
         self,
         relation_symbol: RelationSymbol,
-        fixpoint_bounds: Mapping[RelationSymbol, int],
+        fixpoint_bound: Optional[int], 
     ) -> Optional[Tuple[Tuple[smt.SMTTerm, ...], ...]]:
         """
         Check if the domain of a relation can be made finite,
@@ -294,12 +294,12 @@ class FiniteLFPModelTemplate(FiniteFOModelTemplate):
         if is_finite:
             return tuple(itertools.product(*domains))
 
-        elif relation_symbol in fixpoint_bounds:
+        elif fixpoint_bound is not None:
             finite_domain: List[Tuple[smt.SMTTerm, ...]] = []
 
             # otherwise, the relation is finite if we specify a bound
             for finite_slice in itertools.product(*domains):
-                for _ in range(fixpoint_bounds[relation_symbol]):
+                for _ in range(fixpoint_bound):
                     non_finite_instance = tuple(smt.FreshSymbol(smt_sort) for smt_sort in non_finite_sorts)
                     non_finite_index = 0
                     instance: List[smt.SMTTerm] = []

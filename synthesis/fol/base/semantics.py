@@ -25,7 +25,7 @@ class CarrierSet(ABC):
     def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm: ...
     
     @abstractmethod
-    def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable: ...
+    def get_fresh_constant(self, solver: smt.SMTSolver) -> smt.SMTVariable: ...
 
     def __str__(self) -> str:
         raise NotImplementedError()
@@ -69,7 +69,7 @@ class RefinementCarrierSet(CarrierSet):
     def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Exists((variable,), smt.And(self.predicate(variable), formula))
     
-    def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable:
+    def get_fresh_constant(self, solver: smt.SMTSolver) -> smt.SMTVariable:
         var = smt.FreshSymbol(self.sort)
         solver.add_assertion(self.predicate(var))
         return var
@@ -92,7 +92,7 @@ class FiniteCarrierSet(CarrierSet):
     def existentially_quantify(self, variable: smt.SMTVariable, formula: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Or(*(formula.substitute({ variable: element }) for element in self.domain))
     
-    def get_fresh_constant(self, solver: smt.SMTSolver, sort: Sort) -> smt.SMTVariable:
+    def get_fresh_constant(self, solver: smt.SMTSolver) -> smt.SMTVariable:
         var = smt.FreshSymbol(self.sort)
         solver.add_assertion(smt.Or(*(smt.Equals(var, element) for element in self.domain)))
         return var

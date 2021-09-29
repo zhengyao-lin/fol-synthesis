@@ -94,11 +94,65 @@ theory BST extending HEAP INT
         x = nil() \/
         (left(x) = nil() /\ right(x) = nil()) \/
         (
-            le_int(key(left(x)), key(x)) /\
-            le_int(key(x), key(right(x))) /\
+            (exists n: Int. max(left(x), n) /\ le_int(n, key(x))) /\
+            (exists n: Int. min(right(x), n) /\ le_int(key(x), n)) /\
             bst(left(x)) /\
             bst(right(x))
         )
+
+    relation min: Pointer Int
+    relation max: Pointer Int
+
+    fixpoint min(x, m) =
+        x != nil() /\
+        (
+            (left(x) = nil() /\ right(x) = nil() /\ m = key(x)) \/
+            (
+                left(x) = nil() /\
+                exists n: Int. min(right(x), n) /\ (m = key(x) \/ m = n) /\ (le_int(m, key(x)) /\ le_int(m, n))
+            ) \/
+            (
+                right(x) = nil() /\
+                exists n: Int. min(left(x), n) /\ (m = key(x) \/ m = n) /\ (le_int(m, key(x)) /\ le_int(m, n))
+            ) \/
+            (
+                exists n1: Int, n2: Int.
+                min(left(x), n1) /\ min(right(x), n2) /\
+                (m = key(x) \/ m = n1 \/ m = n2) /\
+                (le_int(m, key(x)) /\ le_int(m, n1) /\ le_int(m, n2))
+            )
+        )
+        [bound(1)]
+
+    fixpoint max(x, m) =
+        x != nil() /\
+        (
+            (left(x) = nil() /\ right(x) = nil() /\ m = key(x)) \/
+            (
+                left(x) = nil() /\
+                exists n: Int. max(right(x), n) /\ (m = key(x) \/ m = n) /\ (le_int(key(x), m) /\ le_int(n, m))
+            ) \/
+            (
+                right(x) = nil() /\
+                exists n: Int. max(left(x), n) /\ (m = key(x) \/ m = n) /\ (le_int(key(x), m) /\ le_int(n, m))
+            ) \/
+            (
+                exists n1: Int, n2: Int.
+                max(left(x), n1) /\ max(right(x), n2) /\
+                (m = key(x) \/ m = n1 \/ m = n2) /\
+                (le_int(key(x), m) /\ le_int(n1, m) /\ le_int(n2, m))
+            )
+        )
+        [bound(1)]
+end
+
+theory LEFTMOST extending BST
+    relation leftmost: Pointer Int
+    constant c: Int
+
+    fixpoint leftmost(x, v) =
+        x != nil() /\ ((left(x) = nil() /\ key(x) = v) \/ leftmost(left(x), v))
+        [bound(1)]
 end
 """)
 
@@ -186,8 +240,8 @@ def prove(
         iteration += 1
 
 
-# prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
-#       r"forall x: Pointer. list(x) -> lseg(x, nil())")
+prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
+      r"forall x: Pointer. list(x) -> lseg(x, nil())")
 
 prove("LIST", "Pointer", ("next",), ("list", "lseg"),
       r"forall x: Pointer, y: Pointer. lseg(x, y) -> lseg(next(x), next(y))",
@@ -205,7 +259,7 @@ prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
 prove("EVEN-ODD", "Pointer", ("nil", "next"), ("list", "even_list", "odd_list"),
       r"forall x: Pointer. list(x) -> even_list(x) \/ odd_list(x)")
 
-prove("BST", "Pointer", (), ("bst", "btree"), r"forall x: Pointer. bst(x) -> btree(x)")
+# prove("BST", "Pointer", (), ("bst", "btree"), r"forall x: Pointer. bst(x) -> btree(x)")
 
 prove("DLIST-LIST", "Pointer", (), ("dlist", "list"), r"forall x: Pointer. dlist(x) -> list(x)")
 
@@ -214,3 +268,7 @@ prove("SLIST-LIST", "Pointer", (), ("slist", "list"), r"forall x: Pointer. slist
 prove("SLIST", "Pointer", (), ("slist", "slseg"), r"forall x: Pointer, y: Pointer. slseg(x, y) -> (slist(y) -> slist(x))")
 
 prove("SDLIST-DLIST", "Pointer", (), ("sdlist", "dlist"), r"forall x: Pointer. sdlist(x) -> dlist(x)")
+
+# prove("LEFTMOST", "Pointer", ("c",), ("bst", "leftmost", "min"),
+#       r"forall x: Pointer. bst(x) /\ leftmost(x, c()) -> min(x, c())",
+#       lemma_formula_depth=1)

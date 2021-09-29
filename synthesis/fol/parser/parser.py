@@ -15,6 +15,10 @@ class ASTTransformer(Transformer[BaseAST]):
         assert value.startswith("\"") and value.endswith("\"")
         return value[1:-1]
 
+    def natural(self, args: List[Token]) -> int:
+        value = str(args[0])
+        return int(value)
+
     def theories(self, args: List[UnresolvedTheory]) -> Tuple[UnresolvedTheory, ...]:
         return tuple(args)
 
@@ -29,8 +33,12 @@ class ASTTransformer(Transformer[BaseAST]):
     def subtheories(self, args: List[Any]) -> Tuple[str, ...]:
         return tuple(args)
 
-    def attribute(self, args: List[str]) -> Attribute:
+    def attribute_argument(self, args: List[Union[str, int]]) -> Union[str, int]:
+        return args[0]
+
+    def attribute(self, args: List[Union[str, int]]) -> Attribute:
         name, *arguments = args
+        assert isinstance(name, str)
         return Attribute(name, tuple(arguments))
 
     def attributes(self, args: List[Attribute]) -> Tuple[Attribute, ...]:
@@ -56,8 +64,8 @@ class ASTTransformer(Transformer[BaseAST]):
         return UnresolvedRelationDefinition(name, tuple(input_sorts), attributes)
 
     def fixpoint_definition(self, args: List[Any]) -> UnresolvedFixpointDefinition:
-        name, *variables, formula = args
-        return UnresolvedFixpointDefinition(name, tuple(variables), formula)
+        name, *variables, formula, attributes = args
+        return UnresolvedFixpointDefinition(name, tuple(variables), formula, attributes)
 
     def axiom(self, args: List[Formula]) -> Axiom:
         formula, = args
@@ -162,15 +170,20 @@ class Parser:
         FORALL.2: "forall"
         EXISTS.2: "exists"
 
+        NATURAL: /0|[1-9][0-9]*/
+
         identifier: IDENTIFIER
         string: STRING
+        natural: NATURAL
 
         theories: theory+
 
         theory: "theory" identifier sentences "end"
               | "theory" identifier "extending" subtheories sentences "end" -> extended_theory
 
-        attribute: identifier "(" string ["," string]* ")"
+        attribute_argument: string | natural
+
+        attribute: identifier "(" attribute_argument ["," attribute_argument]* ")"
                  | identifier
 
         attributes: ["[" attribute ["," attribute]* "]"]
@@ -178,12 +191,12 @@ class Parser:
         sentences: [sentence sentence*]
         subtheories: identifier+
 
-        sentence: "sort" identifier attributes                                             -> sort_definition
-                | "function" identifier ":" identifier+ "->" identifier attributes         -> function_definition
-                | "constant" identifier ":" identifier attributes                          -> constant_definition
-                | "relation" identifier ":" identifier* attributes                         -> relation_definition
-                | "fixpoint" identifier "(" [variable ("," variable)*] ")" "=" formula     -> fixpoint_definition
-                | "axiom" formula                                                          -> axiom
+        sentence: "sort" identifier attributes                                                    -> sort_definition
+                | "function" identifier ":" identifier+ "->" identifier attributes                -> function_definition
+                | "constant" identifier ":" identifier attributes                                 -> constant_definition
+                | "relation" identifier ":" identifier* attributes                                -> relation_definition
+                | "fixpoint" identifier "(" [variable ("," variable)*] ")" "=" formula attributes -> fixpoint_definition
+                | "axiom" formula                                                                 -> axiom
 
         terms: [term ("," term)*]
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Set
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -17,6 +17,9 @@ class Formula(Template["Formula"], ABC):
     def interpret_on_all_worlds(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction]) -> smt.SMTTerm:
         var = frame.get_fresh_constant()
         return frame.universally_quantify(var, self.interpret(frame, valuation, var))
+
+    @abstractmethod
+    def get_atoms(self) -> Set[Atom]: ...
 
 
 @dataclass
@@ -36,6 +39,9 @@ class Falsum(Formula):
     def equals(self, value: Formula) -> smt.SMTTerm:
         return smt.Bool(self == value)
 
+    def get_atoms(self) -> Set[Atom]:
+        return set()
+
 
 @dataclass
 class Verum(Formula):
@@ -53,6 +59,9 @@ class Verum(Formula):
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         return smt.Bool(self == value)
+
+    def get_atoms(self) -> Set[Atom]:
+        return set()
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,9 @@ class Atom(Formula):
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         return smt.Bool(self == value)
+
+    def get_atoms(self) -> Set[Atom]:
+        return { self }
 
 
 @dataclass(frozen=True)
@@ -110,6 +122,9 @@ class Conjunction(Formula):
             self.right.equals(value.right),
         )
 
+    def get_atoms(self) -> Set[Atom]:
+        return self.left.get_atoms().union(self.right.get_atoms())
+
 
 @dataclass(frozen=True)
 class Disjunction(Formula):
@@ -145,6 +160,9 @@ class Disjunction(Formula):
             self.left.equals(value.left),
             self.right.equals(value.right),
         )
+
+    def get_atoms(self) -> Set[Atom]:
+        return self.left.get_atoms().union(self.right.get_atoms())
 
 
 @dataclass(frozen=True)
@@ -182,6 +200,9 @@ class Implication(Formula):
             self.right.equals(value.right),
         )
 
+    def get_atoms(self) -> Set[Atom]:
+        return self.left.get_atoms().union(self.right.get_atoms())
+
 
 @dataclass(frozen=True)
 class Equivalence(Formula):
@@ -218,6 +239,9 @@ class Equivalence(Formula):
             self.right.equals(value.right),
         )
 
+    def get_atoms(self) -> Set[Atom]:
+        return self.left.get_atoms().union(self.right.get_atoms())
+
 
 @dataclass(frozen=True)
 class Negation(Formula):
@@ -239,6 +263,9 @@ class Negation(Formula):
         if not isinstance(value, Negation):
             return smt.FALSE()
         return self.formula.equals(value.formula)
+
+    def get_atoms(self) -> Set[Atom]:
+        return self.formula.get_atoms()
 
 
 @dataclass(frozen=True)
@@ -271,6 +298,9 @@ class Modality(Formula):
             return smt.FALSE()
         return self.formula.equals(value.formula)
 
+    def get_atoms(self) -> Set[Atom]:
+        return self.formula.get_atoms()
+
 
 @dataclass(frozen=True)
 class Diamond(Formula):
@@ -301,3 +331,6 @@ class Diamond(Formula):
         if not isinstance(value, Diamond):
             return smt.FALSE()
         return self.formula.equals(value.formula)
+
+    def get_atoms(self) -> Set[Atom]:
+        return self.formula.get_atoms()

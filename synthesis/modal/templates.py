@@ -18,6 +18,12 @@ class UnionFormulaTemplate(UnionTemplate[Formula], Formula):
             for node_value, template in enumerate(self.templates, 1)
         ))
 
+    def get_atoms(self) -> Set[Atom]:
+        atoms = set()
+        for template in self.templates:
+            atoms.update(template.get_atoms())
+        return atoms
+
 
 class ModalFormulaTemplate(Formula):
     def __init__(self, atoms: Tuple[Atom, ...], depth: int):
@@ -32,6 +38,9 @@ class ModalFormulaTemplate(Formula):
                 ModalFormulaTemplate(atoms, depth - 1),
                 ModalFormulaTemplate(atoms, depth - 1),
             )
+
+    def get_atoms(self) -> Set[Atom]:
+        return set(self.atoms)
 
     def get_constructor_and_arity(self, node_value: int) -> Tuple[Callable[..., Formula], int]:
         return {

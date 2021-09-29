@@ -15,6 +15,7 @@ class FixpointDefinition(Sentence):
     relation_symbol: RelationSymbol
     variables: Tuple[Variable, ...]
     definition: Formula
+    bound: Optional[int] = None
 
     def as_formula(self) -> Formula:
         """
@@ -96,6 +97,9 @@ class Theory(BaseAST):
     @staticmethod
     def empty_theory(language: Language) -> Theory:
         return Theory(language, {}, ())
+
+    def expand_language(self, expansion: Language) -> Theory:
+        return Theory(self.language.expand(expansion), self.fixpoint_definitions, self.axioms)
 
     def extend_axioms(self, axioms: Iterable[Formula]) -> Theory:
         return Theory(

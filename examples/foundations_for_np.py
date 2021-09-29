@@ -57,6 +57,7 @@ theory LISTLEN extending LIST INT
             listlen(next(x), minus(l, one())) /\
             not in_lsegf(x, next(x), nil())
         )
+        [bound(1)]
 end
 
 theory DLIST extending LIST
@@ -98,6 +99,7 @@ theory DLISTLEN extending DLIST INT
             not in_lsegf(x, next(x), nil()) /\
             not in_lsegb(x, nil(), prev(x))
         )
+        [bound(1)]
 end
 
 theory REV extending DLIST
@@ -144,6 +146,7 @@ theory SLISTLEN extending SLIST INT
             slistlen(next(x), minus(l, one())) /\
             not in_lsegf(x, next(x), nil())
         )
+        [bound(1)]
 end
 
 theory BST extending BTREE-BASE INT
@@ -165,6 +168,7 @@ theory BST extending BTREE-BASE INT
         (left(x) = nil() /\ right(x) = nil()) \/
         (btree(left(x)) /\ btree(right(x)) /\ not in_btree(x, left(x)) /\ not in_btree(x, right(x)))
 
+    // note: this definition of BST is wrong but it was used in the paper
     fixpoint bst(x) =
         x = nil() \/
         (left(x) = nil() /\ right(x) = nil()) \/
@@ -179,6 +183,7 @@ theory BST extending BTREE-BASE INT
 
     fixpoint leftmost(x, v) =
         x != nil() /\ ((left(x) = nil() /\ key(x) = v) \/ leftmost(left(x), v))
+        [bound(1)]
 end
 """)
 
@@ -229,7 +234,7 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
         ),
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
-    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ listlen_symbol: 1 }),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
     debug=False,
 ):
     if counterexample is None: print(candidate)
@@ -285,7 +290,7 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
         ),
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
-    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ dlistlen_symbol: 1 }),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
     debug=False,
 ):
     if counterexample is None: print(candidate)
@@ -317,7 +322,7 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
         ),
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
-    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ slistlen_symbol: 1 }),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
     debug=False,
 ):
     if counterexample is None: print(candidate)
@@ -349,7 +354,7 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
         ),
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
-    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }, fixpoint_bounds={ leftmost_symbol: 2 }),
+    goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
     debug=False,
 ):
     if counterexample is None: print(candidate)

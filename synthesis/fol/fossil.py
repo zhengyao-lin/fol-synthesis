@@ -1,6 +1,8 @@
 from typing import List, Dict, Iterable, Optional, Any
 from collections import OrderedDict
 
+from synthesis.utils.ansi import ANSI
+
 from .base import *
 
 from .templates import (
@@ -46,10 +48,18 @@ class FOSSIL:
 
         for relation_symbol in fixpoint_relation_symbols:
             arguments = []
+            has_background_sort = False
 
             for sort in relation_symbol.input_sorts:
+                if sort != foreground_sort:
+                    has_background_sort = True
+                    break
+
                 arguments.append(Variable(f"x{free_var_index}", sort))
                 free_var_index += 1
+
+            if has_background_sort:
+                continue
 
             assert relation_symbol not in templates, \
                 f"duplicate fixpoint definitions for relation {relation_symbol}"
@@ -125,7 +135,13 @@ class FOSSIL:
             solver.add_assertion(model.get_constraint())
 
             for conjunct in conjuncts:
-                solver.add_assertion(conjunct.interpret(model, {}))
+                free_vars = conjunct.get_free_variables()
+                assignment = {
+                    var: model.interpret_sort(var.sort).get_fresh_constant(solver)
+                    for var in free_vars
+                }
+
+                solver.add_assertion(conjunct.interpret(model, assignment))
                 if not solver.solve():
                     return True
 
@@ -214,7 +230,7 @@ class FOSSIL:
                 )
 
                 if validity:
-                    print(f"### proved: {goal}")
+                    print(ANSI.in_green(f"### proved: {goal}"))
                     return True, tuple(lemmas)
 
                 with smt.push_solver(synth_solver):
@@ -252,10 +268,10 @@ class FOSSIL:
                             # obtaint a concrete lemma
                             lemma = lemma_union_template.get_from_smt_model(synth_solver.get_model())
                         else:
-                            print(f"### lemmas exhausted, unable to prove: {goal}")
+                            print(ANSI.in_gray(f"### lemmas exhausted, unable to prove: {goal}"))
                             return False, tuple(lemmas)
                         
-                        print(f"### lemma: {lemma}", end="", flush=True)
+                        print(ANSI.in_gray(f"### lemma: {lemma}"), end="", flush=True)
 
                         # check if the PFP of the lemma is FO-valid under the theory and other lemmas
                         # TODO: check the types
@@ -265,18 +281,18 @@ class FOSSIL:
                         validity = FOSSIL.check_validity(theory.extend_axioms(lemmas), foreground_sort, lemma_pfp, natural_proof_depth)
 
                         if validity:
-                            # valid lemma, add it to the list
-                            print(" - ✓")
+                            print(ANSI.in_gray(" - ✓"))
                             lemmas.append(lemma)
                             break
 
-                        print(" - ✘", end="", flush=True)
+                        print(ANSI.in_gray(" - ✘"), end="", flush=True)
                         synth_solver.add_assertion(smt.Not(lemma_union_template.equals(lemma)))
 
                         # unprovable lemma, either get a finite LFP model or finite FO model to refute it
                         model = FOSSIL.generate_finite_example(theory, foreground_sort, (Negation(lemma),), lfp=True, max_model_size=true_counterexample_size_bound)
                         if model is not None:
-                            print(" (type 2)")
+                            print(ANSI.in_gray(" (lfp counterexample)"))
+                            print(model)
                             synth_solver.add_assertion(lemma_union_template.interpret(model, {}))
                             type2_models.append(model)
 
@@ -286,7 +302,7 @@ class FOSSIL:
                             type3_model = FOSSIL.generate_finite_example(theory.extend_axioms(lemmas), foreground_sort, [Negation(lemma_pfp)])
                             assert type3_model is not None
 
-                            print(" (type 3)")
+                            print(ANSI.in_gray(" (fo counterexample)"))
 
                             lemma_striped = lemma.strip_universal_quantifiers()
                             assert isinstance(lemma_striped, Implication) and \

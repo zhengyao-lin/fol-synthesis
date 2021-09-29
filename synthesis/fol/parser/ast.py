@@ -13,7 +13,7 @@ _T = TypeVar("_T")
 @dataclass(frozen=True)
 class Attribute:
     name: str
-    arguments: Tuple[str, ...]
+    arguments: Tuple[Union[str, int], ...]
 
 
 class UnresolvedAST(Generic[_T]):
@@ -89,6 +89,7 @@ class UnresolvedFixpointDefinition(Sentence):
     name: str
     variables: Tuple[UnresolvedVariable, ...]
     definition: Formula
+    attributes: Tuple[Attribute, ...]
 
 
 @dataclass

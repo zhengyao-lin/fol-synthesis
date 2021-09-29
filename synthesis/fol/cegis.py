@@ -77,11 +77,11 @@ class CEGISynthesizer:
                     # become existentially quantified, we do skolemization here
                     free_vars = template.get_free_variables()
                     gen_skolem_constants = { # for the fo provable structure
-                        v: trivial_model.interpret_sort(v.sort).get_fresh_constant(gen_solver, v.sort)
+                        v: trivial_model.interpret_sort(v.sort).get_fresh_constant(gen_solver)
                         for v in free_vars
                     }
                     check_skolem_constants = { # for the counterexample
-                        v: goal_model.interpret_sort(v.sort).get_fresh_constant(check_solver, v.sort)
+                        v: goal_model.interpret_sort(v.sort).get_fresh_constant(check_solver)
                         for v in free_vars
                     }
 

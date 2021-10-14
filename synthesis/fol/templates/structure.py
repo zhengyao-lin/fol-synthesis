@@ -106,7 +106,7 @@ class FiniteFOModelTemplate(UninterpretedStructureTemplate):
     in which all interpreted sorts have finite domains
     """
 
-    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int]):
+    def __init__(self, theory: Theory, size_bounds: Mapping[Sort, int], exact_size: bool = False):
         super().__init__(theory.language, smt.INT)
 
         self.theory = theory
@@ -118,7 +118,8 @@ class FiniteFOModelTemplate(UninterpretedStructureTemplate):
                        f"no bound on the size of the carrier set of {sort}"
                 carrier = FiniteCarrierSet(
                     smt.INT,
-                    tuple(smt.Int(i) for i in range(size_bounds[sort]))
+                    tuple(smt.Int(i) for i in range(size_bounds[sort])) if exact_size else
+                    tuple(smt.FreshSymbol(smt.INT) for _ in range(size_bounds[sort]))
                 )
                 self.carriers[sort] = carrier
 

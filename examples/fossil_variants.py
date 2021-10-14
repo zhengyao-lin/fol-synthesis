@@ -71,6 +71,26 @@ theory SDLIST extending LIST-BASE KEYED-HEAP
     fixpoint sdlseg(x, y) = x = y \/ (prev(next(x)) = x /\ sdlseg(next(x), y))
 end
 
+theory KEYED-LIST extending LIST KEYED-HEAP INT
+    sort IntSet [smt("(Array Int Bool)")]
+    constant empty_int_set: IntSet [smt("((as const (Array Int Bool)) false)")]
+    function add_int_set: Int IntSet -> IntSet [smt("(store #2 #1 true)")]
+    function remove_int_set: Int IntSet -> IntSet [smt("(store #2 #1 false)")]
+    relation in_int_set: Int IntSet [smt("(select #2 #1)")]
+
+    relation keys: Pointer IntSet
+
+    constant k: Int
+    constant h1: IntSet
+    constant h2: IntSet
+
+    fixpoint keys(x, h) =
+        (x = nil() /\ h = empty_int_set()) \/
+        (keys(next(x), h) /\ in_int_set(key(x), h)) \/
+        (keys(next(x), remove_int_set(key(x), h)))
+        [bound(1)]
+end
+
 theory SLIST-LIST extending SLIST LIST end
 theory DLIST-LIST extending DLIST LIST end
 theory SDLIST-LIST extending SDLIST LIST end
@@ -240,35 +260,38 @@ def prove(
         iteration += 1
 
 
-prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
-      r"forall x: Pointer. list(x) -> lseg(x, nil())")
+# prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
+#       r"forall x: Pointer. list(x) -> lseg(x, nil())")
 
-prove("LIST", "Pointer", ("next",), ("list", "lseg"),
-      r"forall x: Pointer, y: Pointer. lseg(x, y) -> lseg(next(x), next(y))",
-      natural_proof_depth=2,
-      lemma_term_depth=1)
+# prove("LIST", "Pointer", ("next",), ("list", "lseg"),
+#       r"forall x: Pointer, y: Pointer. lseg(x, y) -> lseg(next(x), next(y))",
+#       natural_proof_depth=2,
+#       lemma_term_depth=1)
 
-prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
-      r"forall x: Pointer. lseg(x, nil()) -> list(x)")
+# prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
+#       r"forall x: Pointer. lseg(x, nil()) -> list(x)")
 
-prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
-      r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> lseg(x, z)",
-      natural_proof_depth=2,
-      additional_free_vars=1)
+# prove("LIST", "Pointer", ("nil", "next"), ("list", "lseg"),
+#       r"forall x: Pointer, y: Pointer, z: Pointer. lseg(x, y) /\ lseg(y, z) -> lseg(x, z)",
+#       natural_proof_depth=2,
+#       additional_free_vars=1)
 
-prove("EVEN-ODD", "Pointer", ("nil", "next"), ("list", "even_list", "odd_list"),
-      r"forall x: Pointer. list(x) -> even_list(x) \/ odd_list(x)")
+# prove("EVEN-ODD", "Pointer", ("nil", "next"), ("list", "even_list", "odd_list"),
+#       r"forall x: Pointer. list(x) -> even_list(x) \/ odd_list(x)")
 
 # prove("BST", "Pointer", (), ("bst", "btree"), r"forall x: Pointer. bst(x) -> btree(x)")
 
-prove("DLIST-LIST", "Pointer", (), ("dlist", "list"), r"forall x: Pointer. dlist(x) -> list(x)")
+# prove("DLIST-LIST", "Pointer", (), ("dlist", "list"), r"forall x: Pointer. dlist(x) -> list(x)")
 
-prove("SLIST-LIST", "Pointer", (), ("slist", "list"), r"forall x: Pointer. slist(x) -> list(x)")
+# prove("SLIST-LIST", "Pointer", (), ("slist", "list"), r"forall x: Pointer. slist(x) -> list(x)")
 
-prove("SLIST", "Pointer", (), ("slist", "slseg"), r"forall x: Pointer, y: Pointer. slseg(x, y) -> (slist(y) -> slist(x))")
+# prove("SLIST", "Pointer", (), ("slist", "slseg"), r"forall x: Pointer, y: Pointer. slseg(x, y) -> (slist(y) -> slist(x))")
 
-prove("SDLIST-DLIST", "Pointer", (), ("sdlist", "dlist"), r"forall x: Pointer. sdlist(x) -> dlist(x)")
+# prove("SDLIST-DLIST", "Pointer", (), ("sdlist", "dlist"), r"forall x: Pointer. sdlist(x) -> dlist(x)")
 
 # prove("LEFTMOST", "Pointer", ("c",), ("bst", "leftmost", "min"),
 #       r"forall x: Pointer. bst(x) /\ leftmost(x, c()) -> min(x, c())",
 #       lemma_formula_depth=1)
+
+prove("KEYED-LIST", "Pointer", ("k", "h1", "h2"), ("lseg", "in_int_set", "keys"),
+      r"forall x: Pointer, y: Pointer. lseg(x, y) /\ keys(x, h1()) /\ keys(y, h2()) /\ in_int_set(k(), h1()) -> in_int_set(k(), h2())")

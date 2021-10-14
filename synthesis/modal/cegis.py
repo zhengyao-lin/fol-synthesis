@@ -66,6 +66,7 @@ class ModalSynthesizer:
         with smt.Solver(name="z3") as solver:
             # check that the axiom does not hold on a non-model of the goal_theory
             complement_model = fol.FOModelTemplate(fol.Theory.empty_theory(self.language))
+            # complement_model = fol.FiniteFOModelTemplate(fol.Theory.empty_theory(self.language), { self.sort_world: 7 })
             solver.add_assertion(complement_model.get_constraint())
 
             carrier_world = complement_model.interpret_sort(self.sort_world)
@@ -89,15 +90,23 @@ class ModalSynthesizer:
             valuation_variables: List[smt.SMTTerm] = []
             valuations: Dict[Atom, smt.SMTFunction] = {}
 
+            # other_truth_value_constraint = smt.TRUE()
+
             # for each atom, create a relation that is constant outside skolemized_constants
             for atom in atoms:
                 # truth value for each skolemized_constants
                 truth_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in skolemized_constants)
 
                 # truth outside skolemized_constants
-                other_truth = smt.FreshSymbol(smt.BOOL)
+                # other_truth_value = smt.FreshSymbol(smt.BOOL)
 
-                relation = (lambda truth_values, other_truth: lambda world: smt.Or(
+                # for successors of each skolemized constant,
+                # we assign a (potentially different) truth value 
+                blob_truth_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in skolemized_constants)
+
+                other_truth_value = smt.FreshSymbol(smt.BOOL)
+
+                relation = (lambda truth_values, blob_truth_values, other_truth_value: lambda world: smt.Or(
                     smt.Or(
                         smt.And(
                             smt.Equals(world, skolemized_world),
@@ -111,14 +120,50 @@ class ModalSynthesizer:
                                 smt.Not(smt.Equals(world, skolemized_world))
                                 for skolemized_world in skolemized_constants
                             ),
-                            other_truth,
-                        )
+                            # other_truth_value,
+                            smt.Or(
+                                smt.Or(
+                                    smt.And(
+                                        smt.And(
+                                            complement_model.interpret_relation(self.transition_symbol, skolemized_world, world),
+                                            smt.And(
+                                                # so that we don't assign duplicate values to a world
+                                                smt.And(
+                                                    smt.Not(smt.Equals(skolemized_world, other_skolemized_world)),
+                                                    smt.Not(complement_model.interpret_relation(self.transition_symbol, other_skolemized_world, world)),
+                                                )
+                                                for other_skolemized_world in skolemized_constants[i + 1:]
+                                            ),
+                                        ),
+                                        successor_truth_value,
+                                    )
+                                    for i, (skolemized_world, successor_truth_value) in enumerate(zip(skolemized_constants, blob_truth_values))
+                                ),
+                                smt.And(
+                                    smt.And(
+                                        smt.Not(complement_model.interpret_relation(self.transition_symbol, skolemized_world, world))
+                                        for skolemized_world in skolemized_constants
+                                    ),
+                                    other_truth_value,
+                                ),
+                            ),
+                        ),
                     ),
-                ))(truth_values, other_truth)
+                ))(truth_values, blob_truth_values, other_truth_value)
+
+                # other_truth_value_constraint = smt.And(
+                #     other_truth_value_constraint,
+                #     smt.And(
+                #         smt.Implies(smt.Equals(skolemized_world1, skolemized_world2), smt.Iff(successor_truth_value1, successor_truth_value2))
+                #         for skolemized_world1, successor_truth_value1 in zip(skolemized_constants, other_truth_values)
+                #         for skolemized_world2, successor_truth_value2 in zip(skolemized_constants, other_truth_values)
+                #     ),
+                # )
 
                 valuations[atom] = relation
                 valuation_variables.extend(truth_values)
-                valuation_variables.append(other_truth)
+                valuation_variables.extend(blob_truth_values)
+                valuation_variables.append(other_truth_value)
 
             # temporary placeholder for the world
             world_var = smt.FreshSymbol(complement_model.get_smt_sort(self.sort_world))
@@ -144,6 +189,9 @@ class ModalSynthesizer:
 
             if solver.solve():
                 print(" ... ✘")
+                model = solver.get_model()
+                # print(*(model.get_value(c) for c in skolemized_constants))
+                # print(complement_model.get_from_smt_model(model))
                 return False
             else:
                 print(" ... ✓")

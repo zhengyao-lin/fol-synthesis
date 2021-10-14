@@ -292,7 +292,7 @@ class FOSSIL:
                         model = FOSSIL.generate_finite_example(theory, foreground_sort, (Negation(lemma),), lfp=True, max_model_size=true_counterexample_size_bound)
                         if model is not None:
                             print(ANSI.in_gray(" (lfp counterexample)"))
-                            print(model)
+                            # print(model)
                             synth_solver.add_assertion(lemma_union_template.interpret(model, {}))
                             type2_models.append(model)
 

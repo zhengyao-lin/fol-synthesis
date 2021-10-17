@@ -15,5 +15,6 @@ def exhaust_variable(var: Template[Any]) -> None:
 
 exhaust_variable(modal.ModalFormulaTemplate(
     (modal.Atom("p"),),
-    1,
+    (modal.Diamond, modal.Diamond, modal.Modality),
+    2,
 ))

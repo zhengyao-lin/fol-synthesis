@@ -1,4 +1,4 @@
-from typing import Tuple, Callable
+from typing import Tuple, Callable, Type, List
 
 from synthesis.template import Template, BoundedIntegerVariable, UnionTemplate
 
@@ -26,36 +26,39 @@ class UnionFormulaTemplate(UnionTemplate[Formula], Formula):
 
 
 class ModalFormulaTemplate(Formula):
-    def __init__(self, atoms: Tuple[Atom, ...], depth: int):
+    def __init__(self, atoms: Tuple[Atom, ...], connectives: Tuple[Type[Formula], ...], depth: int):
         self.atoms = atoms
-        self.node = BoundedIntegerVariable(0, 9 + len(atoms))
+        self.connectives = connectives
+        self.node = BoundedIntegerVariable(0, len(atoms) + len(connectives))
         self.depth = depth
+
+        # node values:
+        # 0 for null
+        # [1, len(atoms)] for atoms
+        # [len(atoms) + 1, len(atoms) + len(connectives)] for connectives
+
+        max_arity = 0 if len(connectives) == 0 else max((connective.get_arity() for connective in connectives))
 
         if depth == 0:
             self.subformulas: Tuple[ModalFormulaTemplate, ...] = ()
         else:
-            self.subformulas = (
-                ModalFormulaTemplate(atoms, depth - 1),
-                ModalFormulaTemplate(atoms, depth - 1),
+            self.subformulas = tuple(
+                ModalFormulaTemplate(atoms, connectives, depth - 1)
+                for _ in range(max_arity)
             )
+
+    @classmethod
+    def get_arity(cls) -> int:
+        raise NotImplementedError()
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        raise NotImplementedError()
+
+    def inductive_interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], subformulas: Tuple[Interpretation, ...]) -> Interpretation:
+        raise NotImplementedError()
 
     def get_atoms(self) -> Set[Atom]:
         return set(self.atoms)
-
-    def get_constructor_and_arity(self, node_value: int) -> Tuple[Callable[..., Formula], int]:
-        return {
-            # 0 for null
-            1: (Falsum, 0),
-            2: (Verum, 0),
-            3: (Conjunction, 2),
-            4: (Disjunction, 2),
-            5: (Implication, 2),
-            6: (Equivalence, 2),
-            7: (Negation, 1),
-            8: (Modality, 1),
-            9: (Diamond, 1),
-            # the rest is for atoms
-        }[node_value]
 
     def get_is_null_constraint(self) -> smt.SMTTerm:
         return smt.And(
@@ -67,7 +70,11 @@ class ModalFormulaTemplate(Formula):
         constraint = smt.FALSE()
 
         for node_value in self.node.get_range():
-            if node_value > 9:
+            if node_value == 0:
+                continue
+
+            if node_value <= len(self.atoms):
+                # atoms
                 constraint = smt.Or(
                     smt.And(
                         self.node.equals(node_value),
@@ -75,9 +82,15 @@ class ModalFormulaTemplate(Formula):
                     ),
                     constraint,
                 )
-            
-            elif node_value != 0 and self.depth != 0:
-                _, arity = self.get_constructor_and_arity(node_value)
+
+            else:
+                # connective
+                connective_idx = node_value - len(self.atoms) - 1
+                arity = self.connectives[connective_idx].get_arity()
+
+                if arity != 0 and self.depth == 0:
+                    continue
+
                 constraint = smt.Or(
                     smt.And(
                         self.node.equals(node_value),
@@ -93,175 +106,72 @@ class ModalFormulaTemplate(Formula):
         node_value = self.node.get_from_smt_model(model)
         assert node_value != 0, "null formula"
 
-        if node_value <= 9:
-            constructor, arity = self.get_constructor_and_arity(node_value)
-            return constructor(*(subformula.get_from_smt_model(model) for subformula in self.subformulas[:arity]))
+        if node_value <= len(self.atoms):
+            return self.atoms[node_value - 1]
 
-        return self.atoms[node_value - 10]
+        assert node_value <= len(self.atoms) + len(self.connectives), \
+               "invalid node value"
+
+        connective_idx = node_value - len(self.atoms) - 1
+        connective = self.connectives[connective_idx]
+        arity = connective.get_arity()
+        return connective(*(subformula.get_from_smt_model(model) for subformula in self.subformulas[:arity]))
 
     def equals(self, value: Formula) -> smt.SMTTerm:
-        if isinstance(value, Falsum):
-            return self.node.equals(1)
-
-        if isinstance(value, Verum):
-            return self.node.equals(2)
-
         if isinstance(value, Atom):
             if value in self.atoms:
-                return self.node.equals(10 + self.atoms.index(value))
+                return self.node.equals(self.atoms.index(value) + 1)
             else:
                 return smt.FALSE()
-
-        if self.depth == 0:
+        elif self.depth == 0:
             return smt.FALSE()
 
-        if isinstance(value, Conjunction):
-            return smt.And(
-                self.node.equals(3),
-                self.subformulas[0].equals(value.left),
-                self.subformulas[1].equals(value.right),
-            )
-        
-        if isinstance(value, Disjunction):
-            return smt.And(
-                self.node.equals(4),
-                self.subformulas[0].equals(value.left),
-                self.subformulas[1].equals(value.right),
-            )
+        constraint = smt.FALSE()
 
-        if isinstance(value, Implication):
-            return smt.And(
-                self.node.equals(5),
-                self.subformulas[0].equals(value.left),
-                self.subformulas[1].equals(value.right),
-            )
+        for idx, connective in enumerate(self.connectives):
+            if isinstance(value, connective):
+                subformulas = value.get_immediate_subformulas()
+                assert len(subformulas) == connective.get_arity()
+                constraint = smt.Or(
+                    constraint,
+                    smt.And(
+                        self.node.equals(idx + len(self.atoms) + 1),
+                        smt.And((
+                            template.equals(concrete)
+                            for template, concrete in zip(self.subformulas[:connective.get_arity()], subformulas)
+                        )),
+                    ),
+                )
 
-        if isinstance(value, Equivalence):
-            return smt.And(
-                self.node.equals(6),
-                self.subformulas[0].equals(value.left),
-                self.subformulas[1].equals(value.right),
-            )
-
-        if isinstance(value, Negation):
-            return smt.And(
-                self.node.equals(7),
-                self.subformulas[0].equals(value.formula),
-            )
-
-        if isinstance(value, Modality):
-            return smt.And(
-                self.node.equals(8),
-                self.subformulas[0].equals(value.formula),
-            )
-
-        if isinstance(value, Diamond):
-            return smt.And(
-                self.node.equals(9),
-                self.subformulas[0].equals(value.formula),
-            )
-        
-        return smt.FALSE()
+        return constraint
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         interp = smt.FALSE()
 
         for node_value in self.node.get_range():
-            if node_value > 9:
+            if node_value == 0:
+                continue
+
+            if node_value <= len(self.atoms):
                 interp = smt.Ite(
                     self.node.equals(node_value),
-                    self.atoms[node_value - 10].interpret(frame, valuation, world),
+                    self.atoms[node_value - 1].interpret(frame, valuation, world),
                     interp,
                 )
+            else:
+                connective_idx = node_value - len(self.atoms) - 1
+                connective = self.connectives[connective_idx]
+                arity = connective.get_arity()
 
-            elif node_value == 1:
+                # only have null-ary connectives if the depth is 0
+                if arity != 0 and self.depth == 0:
+                    continue
+
+                # delegate interpretation to the actual implementation of the connective
                 interp = smt.Ite(
                     self.node.equals(node_value),
-                    smt.FALSE(),
+                    connective(*self.subformulas[:arity]).interpret(frame, valuation, world),
                     interp,
                 )
-
-            elif node_value == 2:
-                interp = smt.Ite(
-                    self.node.equals(node_value),
-                    smt.TRUE(),
-                    interp,
-                )
-
-            elif self.depth != 0:
-                if node_value == 3:
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        smt.And(
-                            self.subformulas[0].interpret(frame, valuation, world),
-                            self.subformulas[1].interpret(frame, valuation, world),
-                        ),
-                        interp,
-                    )
-
-                elif node_value == 4:
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        smt.Or(
-                            self.subformulas[0].interpret(frame, valuation, world),
-                            self.subformulas[1].interpret(frame, valuation, world),
-                        ),
-                        interp,
-                    )
-
-                elif node_value == 5:
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        smt.Implies(
-                            self.subformulas[0].interpret(frame, valuation, world),
-                            self.subformulas[1].interpret(frame, valuation, world),
-                        ),
-                        interp,
-                    )
-
-                elif node_value == 6:
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        smt.Iff(
-                            self.subformulas[0].interpret(frame, valuation, world),
-                            self.subformulas[1].interpret(frame, valuation, world),
-                        ),
-                        interp,
-                    )
-
-                elif node_value == 7:
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        smt.Not(self.subformulas[0].interpret(frame, valuation, world)),
-                        interp,
-                    )
-
-                elif node_value == 8:
-                    var = frame.get_fresh_constant()
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        frame.universally_quantify(
-                            var,
-                            smt.Implies(
-                                frame.interpret_transition(world, var),
-                                self.subformulas[0].interpret(frame, valuation, var),
-                            ),
-                        ),
-                        interp,
-                    )
-
-                elif node_value == 9:
-                    var = frame.get_fresh_constant()
-                    interp = smt.Ite(
-                        self.node.equals(node_value),
-                        frame.existentially_quantify(
-                            var,
-                            smt.And(
-                                frame.interpret_transition(world, var),
-                                self.subformulas[0].interpret(frame, valuation, var),
-                            ),
-                        ),
-                        interp,
-                    )
-
+                
         return interp

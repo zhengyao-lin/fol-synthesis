@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Mapping, Set
+from typing import Mapping, Set, Tuple
 from dataclasses import dataclass
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractstaticmethod
 
 from synthesis.smt import smt
 from synthesis.template import Template
@@ -10,7 +10,20 @@ from synthesis.template import Template
 from .semantics import Frame
 
 
+Interpretation = Tuple[smt.SMTVariable, smt.SMTTerm] # (world, truth on the world)
+
+
 class Formula(Template["Formula"], ABC):
+    @staticmethod
+    @abstractstaticmethod
+    def get_arity() -> int: ...
+
+    @abstractmethod
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]: ...
+
+    @abstractmethod
+    def get_atoms(self) -> Set[Atom]: ...
+
     @abstractmethod
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm: ...
 
@@ -18,14 +31,18 @@ class Formula(Template["Formula"], ABC):
         var = frame.get_fresh_constant()
         return frame.universally_quantify(var, self.interpret(frame, valuation, var))
 
-    @abstractmethod
-    def get_atoms(self) -> Set[Atom]: ...
-
 
 @dataclass
 class Falsum(Formula):
     def __str__(self) -> str:
         return "⊥"
+
+    @staticmethod
+    def get_arity() -> int:
+        return 0
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return ()
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.FALSE()
@@ -47,6 +64,13 @@ class Falsum(Formula):
 class Verum(Formula):
     def __str__(self) -> str:
         return "⊤"
+
+    @staticmethod
+    def get_arity() -> int:
+        return 0
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return ()
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.TRUE()
@@ -71,6 +95,13 @@ class Atom(Formula):
     def __str__(self) -> str:
         return self.name
 
+    @staticmethod
+    def get_arity() -> int:
+        return 0
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return ()
+
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return valuation[self](world)
 
@@ -94,6 +125,13 @@ class Conjunction(Formula):
 
     def __str__(self) -> str:
         return f"({self.left} /\\ {self.right})"
+
+    @staticmethod
+    def get_arity() -> int:
+        return 2
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.left, self.right
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.And(
@@ -134,6 +172,13 @@ class Disjunction(Formula):
     def __str__(self) -> str:
         return f"({self.left} \\/ {self.right})"
 
+    @staticmethod
+    def get_arity() -> int:
+        return 2
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.left, self.right
+
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Or(
             self.left.interpret(frame, valuation, world),
@@ -172,6 +217,13 @@ class Implication(Formula):
 
     def __str__(self) -> str:
         return f"({self.left} -> {self.right})"
+
+    @staticmethod
+    def get_arity() -> int:
+        return 2
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.left, self.right
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Implies(
@@ -212,6 +264,13 @@ class Equivalence(Formula):
     def __str__(self) -> str:
         return f"({self.left} <-> {self.right})"
 
+    @staticmethod
+    def get_arity() -> int:
+        return 2
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.left, self.right
+
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Iff(
             self.left.interpret(frame, valuation, world),
@@ -250,6 +309,13 @@ class Negation(Formula):
     def __str__(self) -> str:
         return f"¬{self.formula}"
 
+    @staticmethod
+    def get_arity() -> int:
+        return 1
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.formula,
+
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Not(self.formula.interpret(frame, valuation, world))
 
@@ -274,6 +340,13 @@ class Modality(Formula):
 
     def __str__(self) -> str:
         return f"□{self.formula}"
+
+    @staticmethod
+    def get_arity() -> int:
+        return 1
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.formula,
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         var = frame.get_fresh_constant()
@@ -308,6 +381,13 @@ class Diamond(Formula):
 
     def __str__(self) -> str:
         return f"◊{self.formula}"
+
+    @staticmethod
+    def get_arity() -> int:
+        return 1
+
+    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
+        return self.formula,
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         var = frame.get_fresh_constant()

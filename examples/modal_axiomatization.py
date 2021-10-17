@@ -88,9 +88,9 @@ end
 
 # true in symmetric frames but not complete
 # formula_templates = modal.Implication(
-#     modal.Modality(modal.Modality(atom_p)),
+#     modal.Box(modal.Box(atom_p)),
 #     modal.Disjunction(
-#         modal.Modality(atom_p),
+#         modal.Box(atom_p),
 #         atom_p,
 #     ),
 # ),
@@ -98,24 +98,24 @@ end
 # complete axiom for symmetric frames
 # formula_templates = modal.Implication(
 #     atom_p,
-#     modal.Modality(modal.Diamond(atom_p)),
+#     modal.Box(modal.Diamond(atom_p)),
 # ),
 
 # complete axiom for euclidean frames
 # formula_templates = modal.Implication(
 #     modal.Diamond(atom_p),
-#     modal.Modality(modal.Diamond(atom_p)),
+#     modal.Box(modal.Diamond(atom_p)),
 # ),
 
 # complete axiom for transitive frames
 # formula_templates = modal.Implication(
-#     modal.Modality(atom_p),
-#     modal.Modality(modal.Modality(atom_p)),
+#     modal.Box(atom_p),
+#     modal.Box(modal.Box(atom_p)),
 # ),
 
 # formula_templates = modal.Implication(
-#     modal.Diamond(modal.Modality(atom_p)),
-#     modal.Modality(modal.Diamond(atom_p)),
+#     modal.Diamond(modal.Box(atom_p)),
+#     modal.Box(modal.Diamond(atom_p)),
 # ),
 
 atoms = (
@@ -127,7 +127,14 @@ goal_theory = theory_map["DENSE"]
 true_formulas: List[modal.Formula] = []
 synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
 
-connectives = (modal.Implication, modal.Modality, modal.Diamond, modal.Disjunction, modal.Conjunction, modal.Negation)
+connectives = (
+    modal.Connective(modal.Implication, 2),
+    modal.Connective(modal.Box, 1),
+    modal.Connective(modal.Diamond, 1),
+    modal.Connective(modal.Disjunction, 2),
+    modal.Connective(modal.Conjunction, 2),
+    modal.Connective(modal.Negation, 1),
+)
 
 for formula in synthesizer.synthesize(
     (
@@ -136,15 +143,15 @@ for formula in synthesizer.synthesize(
         # modal.ModalFormulaTemplate(atoms, connectives, 4),
         # modal.Implication(
         #     atoms[0],
-        #     modal.Modality(modal.Diamond(atoms[0])),
+        #     modal.Box(modal.Diamond(atoms[0])),
         # ),
         # modal.Implication(
-        #     modal.Modality(modal.Modality(atoms[0])),
-        #     modal.Modality(atoms[0]),
+        #     modal.Box(modal.Box(atoms[0])),
+        #     modal.Box(atoms[0]),
         # ),
         # modal.Implication(
-        #     modal.Diamond(modal.Modality(atoms[0])),
-        #     modal.Modality(modal.Diamond(atoms[0])),
+        #     modal.Diamond(modal.Box(atoms[0])),
+        #     modal.Box(modal.Diamond(atoms[0])),
         # ),
     ),
     theory_map["FRAME"],

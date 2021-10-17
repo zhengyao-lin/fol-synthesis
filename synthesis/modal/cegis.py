@@ -189,7 +189,8 @@ class ModalSynthesizer:
 
             if solver.solve():
                 print(" ... ✘")
-                model = solver.get_model()
+                # model = solver.get_model()
+                # print(model)
                 # print(*(model.get_value(c) for c in skolemized_constants))
                 # print(complement_model.get_from_smt_model(model))
                 return False

@@ -1,4 +1,4 @@
-from typing import Tuple, Callable, Type, List
+from typing import Tuple, Callable, List, Any
 
 from synthesis.template import Template, BoundedIntegerVariable, UnionTemplate
 
@@ -25,8 +25,21 @@ class UnionFormulaTemplate(UnionTemplate[Formula], Formula):
         return atoms
 
 
+@dataclass
+class Connective:
+    constructor: Callable[..., Formula]
+    arity: int
+
+    def get_arity(self) -> int:
+        return self.arity
+
+    def construct(self, *args: Any) -> Formula:
+        assert len(args) == self.arity
+        return self.constructor(*args)
+
+
 class ModalFormulaTemplate(Formula):
-    def __init__(self, atoms: Tuple[Atom, ...], connectives: Tuple[Type[Formula], ...], depth: int):
+    def __init__(self, atoms: Tuple[Atom, ...], connectives: Tuple[Connective, ...], depth: int):
         self.atoms = atoms
         self.connectives = connectives
         self.node = BoundedIntegerVariable(0, len(atoms) + len(connectives))
@@ -37,7 +50,7 @@ class ModalFormulaTemplate(Formula):
         # [1, len(atoms)] for atoms
         # [len(atoms) + 1, len(atoms) + len(connectives)] for connectives
 
-        max_arity = 0 if len(connectives) == 0 else max((connective.get_arity() for connective in connectives))
+        max_arity = 0 if len(connectives) == 0 else max(connective.get_arity() for connective in connectives)
 
         if depth == 0:
             self.subformulas: Tuple[ModalFormulaTemplate, ...] = ()
@@ -49,12 +62,6 @@ class ModalFormulaTemplate(Formula):
 
     @classmethod
     def get_arity(cls) -> int:
-        raise NotImplementedError()
-
-    def get_immediate_subformulas(self) -> Tuple[Formula, ...]:
-        raise NotImplementedError()
-
-    def inductive_interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], subformulas: Tuple[Interpretation, ...]) -> Interpretation:
         raise NotImplementedError()
 
     def get_atoms(self) -> Set[Atom]:
@@ -115,7 +122,7 @@ class ModalFormulaTemplate(Formula):
         connective_idx = node_value - len(self.atoms) - 1
         connective = self.connectives[connective_idx]
         arity = connective.get_arity()
-        return connective(*(subformula.get_from_smt_model(model) for subformula in self.subformulas[:arity]))
+        return connective.construct(*(subformula.get_from_smt_model(model) for subformula in self.subformulas[:arity]))
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         if isinstance(value, Atom):
@@ -126,24 +133,13 @@ class ModalFormulaTemplate(Formula):
         elif self.depth == 0:
             return smt.FALSE()
 
-        constraint = smt.FALSE()
-
-        for idx, connective in enumerate(self.connectives):
-            if isinstance(value, connective):
-                subformulas = value.get_immediate_subformulas()
-                assert len(subformulas) == connective.get_arity()
-                constraint = smt.Or(
-                    constraint,
-                    smt.And(
-                        self.node.equals(idx + len(self.atoms) + 1),
-                        smt.And((
-                            template.equals(concrete)
-                            for template, concrete in zip(self.subformulas[:connective.get_arity()], subformulas)
-                        )),
-                    ),
-                )
-
-        return constraint
+        return smt.Or(
+            smt.And(
+                self.node.equals(idx + len(self.atoms) + 1),
+                connective.construct(*self.subformulas[:connective.get_arity()]).equals(value)
+            )
+            for idx, connective in enumerate(self.connectives)
+        )
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         interp = smt.FALSE()
@@ -170,7 +166,7 @@ class ModalFormulaTemplate(Formula):
                 # delegate interpretation to the actual implementation of the connective
                 interp = smt.Ite(
                     self.node.equals(node_value),
-                    connective(*self.subformulas[:arity]).interpret(frame, valuation, world),
+                    connective.construct(*self.subformulas[:arity]).interpret(frame, valuation, world),
                     interp,
                 )
                 

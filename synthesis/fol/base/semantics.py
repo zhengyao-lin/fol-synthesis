@@ -199,3 +199,36 @@ class SymbolicStructure(Structure):
                 output.append("}")
 
         return "\n".join(output)
+
+    def get_free_finite_relation(self, input_sorts: Tuple[Sort, ...]) -> Tuple[smt.SMTFunction, Tuple[smt.SMTVariable, ...]]:
+        """
+        Generate a free finite relation with the given input sorts on the structure,
+        represented by a list of boolean variables.
+        All input sorts have to be interpreted as a finite set in the current structure.
+
+        Return an SMT function and variable associated to the relation (so that it can be universally quantified)
+        """
+
+        domains: List[Tuple[smt.SMTTerm, ...]] = []
+        switches: List[smt.SMTFunction] = []
+        control_vars: List[smt.SMTVariable] = []
+
+        for sort in input_sorts:
+            carrier = self.interpret_sort(sort)
+            assert isinstance(carrier, FiniteCarrierSet), \
+                   f"sort {sort} is not finite"
+            domains.append(carrier.domain)
+
+        for arguments in itertools.product(*domains):
+            control_var = smt.FreshSymbol(smt.BOOL)
+            switches.append((lambda arguments, control_var:
+                lambda other: smt.And(
+                    *(smt.Equals(left, right) for left, right in zip(arguments, other)),
+                    control_var,
+                )
+            )(arguments, control_var))
+            control_vars.append(control_var)
+            
+        relation = lambda *arguments: smt.Or(switch(arguments) for switch in switches)
+
+        return relation, tuple(control_vars)

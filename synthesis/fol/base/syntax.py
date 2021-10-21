@@ -334,6 +334,18 @@ class Disjunction(Formula):
     left: Formula
     right: Formula
 
+    @staticmethod
+    def from_disjuncts(*disjuncts: Formula) -> Formula:
+        if len(disjuncts) == 0:
+            return Falsum()
+
+        formula = disjuncts[-1]
+
+        for disjunct in disjuncts[:-1][::-1]:
+            formula = Disjunction(disjunct, formula)
+
+        return formula
+
     def __str__(self) -> str:
         return f"({self.left} \\/ {self.right})"
 

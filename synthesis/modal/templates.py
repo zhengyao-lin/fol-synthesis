@@ -50,19 +50,14 @@ class ModalFormulaTemplate(Formula):
         # [1, len(atoms)] for atoms
         # [len(atoms) + 1, len(atoms) + len(connectives)] for connectives
 
-        max_arity = 0 if len(connectives) == 0 else max(connective.get_arity() for connective in connectives)
-
         if depth == 0:
             self.subformulas: Tuple[ModalFormulaTemplate, ...] = ()
         else:
+            max_arity = 0 if len(connectives) == 0 else max(connective.get_arity() for connective in connectives)
             self.subformulas = tuple(
                 ModalFormulaTemplate(atoms, connectives, depth - 1)
                 for _ in range(max_arity)
             )
-
-    @classmethod
-    def get_arity(cls) -> int:
-        raise NotImplementedError()
 
     def get_atoms(self) -> Set[Atom]:
         return set(self.atoms)
@@ -130,8 +125,6 @@ class ModalFormulaTemplate(Formula):
                 return self.node.equals(self.atoms.index(value) + 1)
             else:
                 return smt.FALSE()
-        elif self.depth == 0:
-            return smt.FALSE()
 
         return smt.Or(
             smt.And(
@@ -139,6 +132,7 @@ class ModalFormulaTemplate(Formula):
                 connective.construct(*self.subformulas[:connective.get_arity()]).equals(value)
             )
             for idx, connective in enumerate(self.connectives)
+            if self.depth != 0 or connective.get_arity() == 0
         )
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
@@ -149,9 +143,11 @@ class ModalFormulaTemplate(Formula):
                 continue
 
             if node_value <= len(self.atoms):
-                interp = smt.Ite(
-                    self.node.equals(node_value),
-                    self.atoms[node_value - 1].interpret(frame, valuation, world),
+                interp = smt.Or(
+                    smt.And(
+                        self.node.equals(node_value),
+                        self.atoms[node_value - 1].interpret(frame, valuation, world),
+                    ),
                     interp,
                 )
             else:
@@ -164,9 +160,11 @@ class ModalFormulaTemplate(Formula):
                     continue
 
                 # delegate interpretation to the actual implementation of the connective
-                interp = smt.Ite(
-                    self.node.equals(node_value),
-                    connective.construct(*self.subformulas[:arity]).interpret(frame, valuation, world),
+                interp = smt.Or(
+                    smt.And(
+                        self.node.equals(node_value),
+                        connective.construct(*self.subformulas[:arity]).interpret(frame, valuation, world),
+                    ),
                     interp,
                 )
                 

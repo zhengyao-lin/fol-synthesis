@@ -40,7 +40,7 @@ class ModalSynthesizer:
             self.get_atom_interpretation_in_structure(structure, atom_symbols),
         )
 
-    def interpret_validity(self, formula: Formula, finite_structure: fol.FiniteFOModelTemplate) -> smt.SMTTerm:
+    def interpret_validity(self, formula: Formula, finite_structure: fol.SymbolicStructure) -> smt.SMTTerm:
         """
         Same as interpret_on_fo_structure but quantifies over all valuations
         """
@@ -66,7 +66,7 @@ class ModalSynthesizer:
         with smt.Solver(name="z3") as solver:
             # check that the axiom does not hold on a non-model of the goal_theory
             complement_model = fol.FOModelTemplate(fol.Theory.empty_theory(self.language))
-            # complement_model = fol.FiniteFOModelTemplate(fol.Theory.empty_theory(self.language), { self.sort_world: 7 })
+            # complement_model = fol.FiniteFOModelTemplate(fol.Theory.empty_theory(self.language), { self.sort_world: 3 }, exact_size=True)
             solver.add_assertion(complement_model.get_constraint())
 
             carrier_world = complement_model.interpret_sort(self.sort_world)
@@ -151,15 +151,6 @@ class ModalSynthesizer:
                     ),
                 ))(truth_values, blob_truth_values, other_truth_value)
 
-                # other_truth_value_constraint = smt.And(
-                #     other_truth_value_constraint,
-                #     smt.And(
-                #         smt.Implies(smt.Equals(skolemized_world1, skolemized_world2), smt.Iff(successor_truth_value1, successor_truth_value2))
-                #         for skolemized_world1, successor_truth_value1 in zip(skolemized_constants, other_truth_values)
-                #         for skolemized_world2, successor_truth_value2 in zip(skolemized_constants, other_truth_values)
-                #     ),
-                # )
-
                 valuations[atom] = relation
                 valuation_variables.extend(truth_values)
                 valuation_variables.extend(blob_truth_values)
@@ -189,14 +180,21 @@ class ModalSynthesizer:
 
             if solver.solve():
                 print(" ... ✘")
-                # model = solver.get_model()
-                # print(model)
-                # print(*(model.get_value(c) for c in skolemized_constants))
-                # print(complement_model.get_from_smt_model(model))
+                # print(complement_model.get_from_smt_model(solver.get_model()))
                 return False
             else:
                 print(" ... ✓")
                 return True
+
+    def complement_theory(self, theory: fol.Theory) -> fol.Theory:
+        assert len(list(theory.get_fixpoint_definitions())) == 0
+        return fol.Theory(
+            theory.language,
+            {},
+            (
+                fol.Axiom(fol.Disjunction.from_disjuncts(*(fol.Negation(axiom.formula) for axiom in theory.get_axioms()))),
+            ),
+        )
 
     def synthesize(
         self,
@@ -204,6 +202,8 @@ class ModalSynthesizer:
         trivial_theory: fol.Theory,
         goal_theory: fol.Theory,
         model_size_bound: int = 4,
+        use_negative_examples: bool = False,
+        # NOTE: setting use_negative_examples to true may rule out some overapproximating formulas
     ) -> Generator[Formula, None, None]:
         # get all atoms used
         atoms: Set[Atom] = set()
@@ -218,13 +218,18 @@ class ModalSynthesizer:
 
         # expand the language with new predicates
         language_expansion = fol.Language((), (), tuple(atom_symbols.values()))
-        trivial_theory = trivial_theory.expand_language(language_expansion)
         goal_theory = goal_theory.expand_language(language_expansion)
+
+        if use_negative_examples:
+            trivial_theory = self.complement_theory(goal_theory)
+        else:
+            trivial_theory = trivial_theory.expand_language(language_expansion)
 
         trivial_model = fol.FiniteFOModelTemplate(trivial_theory, { self.sort_world: model_size_bound })
         goal_model = fol.FiniteFOModelTemplate(goal_theory, { self.sort_world: model_size_bound })
 
-        counterexamples: List[fol.Structure] = []
+        positive_examples: List[fol.SymbolicStructure] = []
+        negative_examples: List[fol.SymbolicStructure] = []
         true_formulas: List[Formula] = []
 
         with smt.Solver(name="z3") as solver1, \
@@ -234,7 +239,8 @@ class ModalSynthesizer:
             solver2.add_assertion(goal_model.get_constraint())
             
             for formula_template in formula_templates:
-                new_counterexamples = counterexamples
+                new_positive_examples = positive_examples
+                new_negative_examples = negative_examples
                 new_true_formulas = true_formulas
 
                 with smt.push_solver(solver1):
@@ -244,11 +250,18 @@ class ModalSynthesizer:
                     solver1.add_assertion(smt.Not(self.interpret_on_fo_structure(formula_template, trivial_model, atom_symbols)))
 
                     while True:
-                        # add all counterexamples and true formulas
-                        for counterexample in new_counterexamples:
-                            solver1.add_assertion(self.interpret_on_fo_structure(formula_template, counterexample, atom_symbols))
-                        new_counterexamples = []
+                        # add all positive examples
+                        for positive_example in new_positive_examples:
+                            # solver1.add_assertion(self.interpret_on_fo_structure(formula_template, positive_example, atom_symbols))
+                            solver1.add_assertion(self.interpret_validity(formula_template, positive_example))
+                        new_positive_examples = []
+
+                        # add all negative examples
+                        for negative_example in new_negative_examples:
+                            solver1.add_assertion(smt.Not(self.interpret_validity(formula_template, negative_example)))
+                        new_negative_examples = []
                         
+                        # add all true formulas
                         for formula in new_true_formulas:
                             solver1.add_assertion(self.interpret_validity(formula, trivial_model))
                         new_true_formulas = []
@@ -256,19 +269,27 @@ class ModalSynthesizer:
                         if not solver1.solve():
                             break
 
-                        candidate = formula_template.get_from_smt_model(solver1.get_model())
+                        smt_model = solver1.get_model()
+                        candidate = formula_template.get_from_smt_model(smt_model)
+                        candidate = candidate.simplify()
                         print(candidate, end="", flush=True)
+                        
+                        # new negative example
+                        if use_negative_examples:
+                            negative_example = trivial_model.get_from_smt_model(smt_model)
+                            negative_examples.append(negative_example)
+                            new_negative_examples.append(negative_example)
 
                         with smt.push_solver(solver2):
-                            # try to find a frame in which the ca`ndidate does not hold on all worlds
+                            # try to find a frame in which the candidate does not hold on all worlds
                             solver2.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, goal_model, atom_symbols)))
 
                             if solver2.solve():
                                 print(" ... ✘")
-                                # add the counterexample
-                                counterexample = goal_model.get_from_smt_model(solver2.get_model())
-                                counterexamples.append(counterexample)
-                                new_counterexamples.append(counterexample)
+                                # add the positive_example
+                                positive_example = goal_model.get_from_smt_model(solver2.get_model())
+                                positive_examples.append(positive_example)
+                                new_positive_examples.append(positive_example)
                             else:
                                 print(" ... ✓")
                                 yield candidate

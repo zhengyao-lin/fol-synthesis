@@ -122,18 +122,22 @@ atoms = (
     modal.Atom("p"),
 )
 
-goal_theory = theory_map["DENSE"]
+goal_theory = theory_map["FUNCTIONAL"]
 
 true_formulas: List[modal.Formula] = []
 synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
 
 connectives = (
+    modal.Connective(modal.Falsum, 0),
+    modal.Connective(modal.Verum, 0),
+
     modal.Connective(modal.Implication, 2),
-    modal.Connective(modal.Box, 1),
-    modal.Connective(modal.Diamond, 1),
     modal.Connective(modal.Disjunction, 2),
     modal.Connective(modal.Conjunction, 2),
     modal.Connective(modal.Negation, 1),
+
+    modal.Connective(modal.Box, 1),
+    modal.Connective(modal.Diamond, 1),
 )
 
 for formula in synthesizer.synthesize(
@@ -141,21 +145,10 @@ for formula in synthesizer.synthesize(
         modal.ModalFormulaTemplate(atoms, connectives, 2),
         modal.ModalFormulaTemplate(atoms, connectives, 3),
         # modal.ModalFormulaTemplate(atoms, connectives, 4),
-        # modal.Implication(
-        #     atoms[0],
-        #     modal.Box(modal.Diamond(atoms[0])),
-        # ),
-        # modal.Implication(
-        #     modal.Box(modal.Box(atoms[0])),
-        #     modal.Box(atoms[0]),
-        # ),
-        # modal.Implication(
-        #     modal.Diamond(modal.Box(atoms[0])),
-        #     modal.Box(modal.Diamond(atoms[0])),
-        # ),
     ),
     theory_map["FRAME"],
     goal_theory,
+    use_negative_examples=True,
 ):
     true_formulas.append(formula)
 

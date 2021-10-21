@@ -24,8 +24,14 @@ class Formula(Template["Formula"], ABC):
         var = frame.get_fresh_constant()
         return frame.universally_quantify(var, self.interpret(frame, valuation, var))
 
+    def simplify(self) -> Formula:
+        """
+        Simplify to an equivalent formula
+        """
+        return self
 
-@dataclass
+
+@dataclass(frozen=True)
 class Falsum(Formula):
     def __str__(self) -> str:
         return "⊥"
@@ -46,7 +52,7 @@ class Falsum(Formula):
         return set()
 
 
-@dataclass
+@dataclass(frozen=True)
 class Verum(Formula):
     def __str__(self) -> str:
         return "⊤"
@@ -128,6 +134,28 @@ class Conjunction(Formula):
     def get_atoms(self) -> Set[Atom]:
         return self.left.get_atoms().union(self.right.get_atoms())
 
+    def simplify(self) -> Formula:
+        left = self.left.simplify()
+        right = self.right.simplify()
+        
+        # modulo AC of /\, \/?
+        if left == right:
+            return left
+
+        if isinstance(left, Falsum) or isinstance(right, Falsum):
+            return Falsum()
+
+        if isinstance(left, Verum):
+            return right
+
+        if isinstance(right, Verum):
+            return left
+
+        # if isinstance(left, Implication) and isinstance(right, Implication) and left.left == right.left:
+        #     return Implication(left.left, Conjunction(left.right, right.right))
+
+        return Conjunction(left, right)
+
 
 @dataclass(frozen=True)
 class Disjunction(Formula):
@@ -166,6 +194,25 @@ class Disjunction(Formula):
 
     def get_atoms(self) -> Set[Atom]:
         return self.left.get_atoms().union(self.right.get_atoms())
+
+    def simplify(self) -> Formula:
+        left = self.left.simplify()
+        right = self.right.simplify()
+        
+        # modulo AC of /\, \/?
+        if left == right:
+            return left
+
+        if isinstance(left, Verum) or isinstance(right, Verum):
+            return Verum()
+
+        if isinstance(left, Falsum):
+            return right
+
+        if isinstance(right, Falsum):
+            return left
+
+        return Disjunction(left, right)
 
 
 @dataclass(frozen=True)
@@ -206,6 +253,28 @@ class Implication(Formula):
     def get_atoms(self) -> Set[Atom]:
         return self.left.get_atoms().union(self.right.get_atoms())
 
+    def simplify(self) -> Formula:
+        left = self.left.simplify()
+        right = self.right.simplify()
+        
+        # modulo AC of /\, \/?
+        if left == right:
+            return Verum()
+
+        if isinstance(left, Verum):
+            return right
+
+        if isinstance(left, Falsum):
+            return Verum()
+
+        if isinstance(right, Verum):
+            return Verum()
+
+        if isinstance(right, Falsum):
+            return Negation(left)
+
+        return Implication(left, right)
+
 
 @dataclass(frozen=True)
 class Equivalence(Formula):
@@ -245,6 +314,28 @@ class Equivalence(Formula):
     def get_atoms(self) -> Set[Atom]:
         return self.left.get_atoms().union(self.right.get_atoms())
 
+    def simplify(self) -> Formula:
+        left = self.left.simplify()
+        right = self.right.simplify()
+        
+        # modulo AC of /\, \/?
+        if left == right:
+            return Verum()
+
+        if isinstance(left, Verum):
+            return right
+
+        if isinstance(left, Falsum):
+            return Negation(right)
+
+        if isinstance(right, Verum):
+            return left
+
+        if isinstance(right, Falsum):
+            return Negation(left)
+
+        return Equivalence(left, right)
+
 
 @dataclass(frozen=True)
 class Negation(Formula):
@@ -269,6 +360,17 @@ class Negation(Formula):
 
     def get_atoms(self) -> Set[Atom]:
         return self.formula.get_atoms()
+
+    def simplify(self) -> Formula:
+        formula = self.formula.simplify()
+
+        if isinstance(formula, Verum):
+            return Falsum()
+
+        if isinstance(formula, Falsum):
+            return Verum()
+
+        return Negation(formula)
 
 
 @dataclass(frozen=True)
@@ -304,6 +406,9 @@ class Box(Formula):
     def get_atoms(self) -> Set[Atom]:
         return self.formula.get_atoms()
 
+    def simplify(self) -> Formula:
+        return Box(self.formula.simplify())
+
 
 @dataclass(frozen=True)
 class Diamond(Formula):
@@ -337,6 +442,9 @@ class Diamond(Formula):
 
     def get_atoms(self) -> Set[Atom]:
         return self.formula.get_atoms()
+
+    def simplify(self) -> Formula:
+        return Diamond(self.formula.simplify())
 
 
 @dataclass(frozen=True)
@@ -372,6 +480,9 @@ class BoxPast(Formula):
     def get_atoms(self) -> Set[Atom]:
         return self.formula.get_atoms()
 
+    def simplify(self) -> Formula:
+        return BoxPast(self.formula.simplify())
+
 
 @dataclass(frozen=True)
 class DiamondPast(Formula):
@@ -405,3 +516,6 @@ class DiamondPast(Formula):
 
     def get_atoms(self) -> Set[Atom]:
         return self.formula.get_atoms()
+
+    def simplify(self) -> Formula:
+        return DiamondPast(self.formula.simplify())

@@ -17,6 +17,7 @@ class BaseAST: ...
 class Sort(BaseAST):
     name: str
     smt_hook: Optional[smt.SMTSort] = None
+    smt_hook_constraint: Optional[smt.SMTFunction] = None # a constraint on the smt sort
 
     def __str__(self) -> str:
         return self.name

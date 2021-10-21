@@ -37,8 +37,6 @@ class UninterpretedStructureTemplate(SymbolicStructure, StructureTemplate):
             if sort.smt_hook is None:
                 # TODO
                 carriers[sort] = RefinementCarrierSet(default_sort or smt.FreshSort())
-            else:
-                carriers[sort] = RefinementCarrierSet(sort.smt_hook)
 
         for function_symbol in language.function_symbols:
             if function_symbol.smt_hook is None:

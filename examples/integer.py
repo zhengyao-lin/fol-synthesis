@@ -27,7 +27,7 @@ end
 
 language = int_theory.language.get_sublanguage(
     ("Int",),
-    ("add",),
+    ("add", "zero"),
     ("le",),
 )
 
@@ -96,7 +96,7 @@ with smt.Solver(name="z3") as solver1, \
         print(f"### Template {template}")
         free_vars = tuple(template.get_free_variables())
 
-        free_var_valuation = { var: smt.FreshSymbol(smt.INT) for var in free_vars }
+        free_var_valuation = { var: std_model.interpret_sort(var.sort).get_fresh_constant(solver2) for var in free_vars }
 
         with smt.push_solver(solver1):
             solver1.add_assertion(template.get_constraint())

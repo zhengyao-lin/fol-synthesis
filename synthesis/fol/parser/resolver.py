@@ -1,4 +1,4 @@
-from typing import TypeVar, Any, overload, Dict
+from typing import TypeVar, Any, overload, Dict, Type
 from collections import OrderedDict
 
 import re
@@ -322,18 +322,25 @@ class VariableSortResolver(CopyVisitor):
 
 class Resolver:
     @staticmethod
-    def get_smt_attribute(attributes: Tuple[Attribute, ...]) -> Optional[str]:
-        """
-        Try to find an SMT attribut in a list of attributes
-        """
+    def get_attribute(attributes: Tuple[Attribute, ...], name: str, arg_types: Tuple[Any, ...]) -> Optional[Tuple[Union[int, str], ...]]:
+        args: Optional[Tuple[Union[int, str], ...]] = None
+
         for attribute in attributes:
-            if attribute.name == "smt":
-                assert len(attribute.arguments) == 1 and isinstance(attribute.arguments[0], str), \
-                       "smt attribute requires exactly one string argument"
-                return attribute.arguments[0]
-            else:
-                assert False, f"unknown attribute {attribute}"
-        return None
+            if attribute.name == name:
+                assert args is None, f"duplicate attribute {name}"
+                args = attribute.arguments
+
+        if args is None:
+            return None
+
+        if len(args) != len(arg_types):
+            return None
+
+        for arg, arg_type in zip(args, arg_types):
+            if not isinstance(arg, arg_type):
+                return None
+
+        return args
 
     @staticmethod
     def collect_sorts(theory: UnresolvedTheory) -> Tuple[Sort, ...]:
@@ -343,9 +350,20 @@ class Resolver:
             if isinstance(sentence, UnresolvedSortDefinition):
                 sort = sentence.sort
                 
-                smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
-                if smt_attribute is not None:
-                    sort = Sort(sort.name, smt_hook=smt.SMTLIB.parse_sort(smt_attribute))
+                smt_args = Resolver.get_attribute(sentence.attributes, "smt", (str,))
+                if smt_args is not None:
+                    assert isinstance(smt_args[0], str)
+                    sort = Sort(sort.name, smt_hook=smt.SMTLIB.parse_sort(smt_args[0]))
+                else:
+                    # a refinement sort
+                    smt_args = Resolver.get_attribute(sentence.attributes, "smt", (str, str))
+                    if smt_args is not None:
+                        assert isinstance(smt_args[0], str) and isinstance(smt_args[1], str)
+                        sort = Sort(
+                            sort.name,
+                            smt_hook=smt.SMTLIB.parse_sort(smt_args[0]),
+                            smt_hook_constraint=smt.SMTLIB.parse_smt_function_from_template(smt_args[1]),
+                        )
 
                 assert sort not in sorts, f"duplicate sort {sort} in theory {theory.name}"
 
@@ -380,9 +398,10 @@ class Resolver:
                     assert name in sort_map, f"unknown sort {name} in theory {theory.name}"
                     input_sorts.append(sort_map[name])
 
-                smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
-                if smt_attribute is not None:
-                    smt_hook: Optional[smt.SMTFunction] = smt.SMTLIB.parse_smt_function_from_template(smt_attribute)
+                smt_args = Resolver.get_attribute(sentence.attributes, "smt", (str,))
+                if smt_args is not None:
+                    assert isinstance(smt_args[0], str)
+                    smt_hook: Optional[smt.SMTFunction] = smt.SMTLIB.parse_smt_function_from_template(smt_args[0])
                 else:
                     smt_hook = None
 
@@ -396,9 +415,10 @@ class Resolver:
                     assert name in sort_map, f"unknown sort {name} in theory {theory.name}"
                     input_sorts.append(sort_map[name])
 
-                smt_attribute = Resolver.get_smt_attribute(sentence.attributes)
-                if smt_attribute is not None:
-                    smt_hook = smt.SMTLIB.parse_smt_function_from_template(smt_attribute)
+                smt_args = Resolver.get_attribute(sentence.attributes, "smt", (str,))
+                if smt_args is not None:
+                    assert isinstance(smt_args[0], str)
+                    smt_hook = smt.SMTLIB.parse_smt_function_from_template(smt_args[0])
                 else:
                     smt_hook = None
 

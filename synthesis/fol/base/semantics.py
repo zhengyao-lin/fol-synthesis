@@ -75,7 +75,8 @@ class RefinementCarrierSet(CarrierSet):
         return var
 
     def __str__(self) -> str:
-        return f"{{ x: {self.sort} | ... }}"
+        fresh = smt.FreshSymbol(self.sort)
+        return f"{{ {fresh}: {self.sort} | {self.predicate(fresh)} }}"
 
 
 @dataclass
@@ -117,7 +118,7 @@ class SymbolicStructure(Structure):
     def interpret_sort(self, sort: Sort) -> CarrierSet:
         if sort not in self.carriers:
             assert sort.smt_hook is not None, f"unable to interpret sort {sort}"
-            return RefinementCarrierSet(sort.smt_hook)
+            return RefinementCarrierSet(sort.smt_hook, sort.smt_hook_constraint or (lambda _: smt.TRUE()))
 
         return self.carriers[sort]
 

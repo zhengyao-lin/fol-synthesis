@@ -57,21 +57,81 @@ class ModalSynthesizer:
             valuation,
         ))
 
-    def check_completeness(self, goal_theory: fol.Theory, modal_axiom: Formula) -> bool:
+    def construct_blobs(self, model: fol.Structure, base_worlds: Iterable[smt.SMTTerm], depth: int) -> Tuple[smt.SMTFunction, ...]:
+        """
+        Returns (base worlds, a partition (list of predicates))
+
+        Let n = base_size, d = depth
+        The total number of blobs will be bounded by 2^(n(d + 1))
+        """
+
+        carrier_world = model.interpret_sort(self.sort_world)
+        world_smt_sort = carrier_world.get_smt_sort()
+
+        # predicates saying that a world is a k-successor of some base world, for some k
+        successor_classes: List[smt.SMTFunction] = []
+
+        for base_world in base_worlds:
+            for k in range(depth + 1):
+                if k == 0:
+                    successor_classes.append((lambda base_world: lambda world: smt.Equals(world, base_world))(base_world))
+                else:
+                    path = (base_world,) + tuple(smt.FreshSymbol(world_smt_sort) for _ in range(k))
+                    connected_constraint = smt.And(
+                        model.interpret_relation(self.transition_symbol, path[i], path[i + 1])
+                        for i in range(k)
+                    )
+
+                    # existentially quantify all intermediate worlds
+                    for i in range(1, k):
+                        connected_constraint = carrier_world.existentially_quantify(path[i], connected_constraint)
+
+                    successor_classes.append((lambda connected_constraint, last_world: lambda world:
+                        connected_constraint.substitute({ last_world: world })
+                    )(connected_constraint, path[-1]))
+
+        # add all paritions (some might be empty for some instantiation of base_worlds)
+        partition: List[smt.SMTFunction] = []
+
+        for switches in range(2 ** len(successor_classes)):
+            partition.append((lambda switches: lambda world:
+                smt.And(
+                    successor_class(world) if switches & (1 << i) != 0 else smt.Not(successor_class(world))
+                    for i, successor_class in enumerate(successor_classes)
+                )
+            )(switches))
+
+        return tuple(partition)
+
+    def get_valuation_on_partition(self, partition: Tuple[smt.SMTFunction, ...]) -> Tuple[Tuple[smt.SMTVariable, ...], smt.SMTFunction]:
+        """
+        Return a unary relation on worlds that's variable only across equivalence classes
+
+        Assume that the partition is indeed a partition
+        """
+
+        valuation_vars = tuple(smt.FreshSymbol(smt.BOOL) for _ in partition)
+
+        return valuation_vars, lambda world: smt.Or(
+            smt.And(eq_class(world), truth)
+            for eq_class, truth in zip(partition, valuation_vars)
+        )
+
+    def check_completeness(self, goal_theory: fol.Theory, modal_axiom: Formula, blob_depth: int = 0) -> bool:
         """
         Check if the given axiom is complete for a FO characterization goal_theory
         """
-        atoms = modal_axiom.get_atoms()
-
         with smt.Solver(name="z3") as solver:
             # check that the axiom does not hold on a non-model of the goal_theory
-            complement_model = fol.FOModelTemplate(fol.Theory.empty_theory(self.language))
-            # complement_model = fol.FiniteFOModelTemplate(fol.Theory.empty_theory(self.language), { self.sort_world: 3 }, exact_size=True)
+            complement_model = fol.FOModelTemplate(fol.Theory.empty_theory(self.language), default_sort=smt.INT)
+            # complement_model = fol.FiniteFOModelTemplate(fol.Theory.empty_theory(self.language), { self.sort_world: 6 })
             solver.add_assertion(complement_model.get_constraint())
 
             carrier_world = complement_model.interpret_sort(self.sort_world)
             skolemized_constants: List[smt.SMTTerm] = []
+            complement_constraint = smt.FALSE()
 
+            # negate each axiom and skolemize
             for axiom in goal_theory.get_axioms():
                 formula = axiom.formula
                 assignment: Dict[fol.Variable, smt.SMTTerm] = {}
@@ -83,84 +143,29 @@ class ModalSynthesizer:
                     assignment[formula.variable] = constant
                     formula = formula.body
 
-                solver.add_assertion(smt.Not(formula.interpret(complement_model, assignment)))
+                complement_constraint = smt.Or(
+                    complement_constraint,
+                    smt.Not(formula.interpret(complement_model, assignment)),
+                )
 
-            print(f"checking valuations on {len(skolemized_constants)} skolemized constant(s)")
+            solver.add_assertion(complement_constraint)
 
-            valuation_variables: List[smt.SMTTerm] = []
+            partition = self.construct_blobs(complement_model, skolemized_constants, blob_depth)
+
+            # for each atom, create a valuation constant in each equivalence class of <partition>
+            all_valuation_vars: List[smt.SMTVariable] = []
             valuations: Dict[Atom, smt.SMTFunction] = {}
 
-            # other_truth_value_constraint = smt.TRUE()
-
-            # for each atom, create a relation that is constant outside skolemized_constants
-            for atom in atoms:
-                # truth value for each skolemized_constants
-                truth_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in skolemized_constants)
-
-                # truth outside skolemized_constants
-                # other_truth_value = smt.FreshSymbol(smt.BOOL)
-
-                # for successors of each skolemized constant,
-                # we assign a (potentially different) truth value 
-                blob_truth_values = tuple(smt.FreshSymbol(smt.BOOL) for _ in skolemized_constants)
-
-                other_truth_value = smt.FreshSymbol(smt.BOOL)
-
-                relation = (lambda truth_values, blob_truth_values, other_truth_value: lambda world: smt.Or(
-                    smt.Or(
-                        smt.And(
-                            smt.Equals(world, skolemized_world),
-                            truth_value,
-                        )
-                        for skolemized_world, truth_value in zip(skolemized_constants, truth_values)
-                    ),
-                    smt.Or(
-                        smt.And(
-                            smt.And(
-                                smt.Not(smt.Equals(world, skolemized_world))
-                                for skolemized_world in skolemized_constants
-                            ),
-                            # other_truth_value,
-                            smt.Or(
-                                smt.Or(
-                                    smt.And(
-                                        smt.And(
-                                            complement_model.interpret_relation(self.transition_symbol, skolemized_world, world),
-                                            smt.And(
-                                                # so that we don't assign duplicate values to a world
-                                                smt.And(
-                                                    smt.Not(smt.Equals(skolemized_world, other_skolemized_world)),
-                                                    smt.Not(complement_model.interpret_relation(self.transition_symbol, other_skolemized_world, world)),
-                                                )
-                                                for other_skolemized_world in skolemized_constants[i + 1:]
-                                            ),
-                                        ),
-                                        successor_truth_value,
-                                    )
-                                    for i, (skolemized_world, successor_truth_value) in enumerate(zip(skolemized_constants, blob_truth_values))
-                                ),
-                                smt.And(
-                                    smt.And(
-                                        smt.Not(complement_model.interpret_relation(self.transition_symbol, skolemized_world, world))
-                                        for skolemized_world in skolemized_constants
-                                    ),
-                                    other_truth_value,
-                                ),
-                            ),
-                        ),
-                    ),
-                ))(truth_values, blob_truth_values, other_truth_value)
-
-                valuations[atom] = relation
-                valuation_variables.extend(truth_values)
-                valuation_variables.extend(blob_truth_values)
-                valuation_variables.append(other_truth_value)
+            for atom in modal_axiom.get_atoms():
+                valuation_vars, valuation = self.get_valuation_on_partition(partition)
+                all_valuation_vars.extend(valuation_vars)
+                valuations[atom] = valuation
 
             # temporary placeholder for the world
             world_var = smt.FreshSymbol(complement_model.get_smt_sort(self.sort_world))
 
             # quantify over all valuations (with finite basis)
-            constraint = smt.ForAll(valuation_variables,
+            constraint = smt.ForAll(all_valuation_vars,
                 modal_axiom.interpret(
                     FOStructureFrame(complement_model, self.sort_world, self.transition_symbol),
                     valuations,
@@ -176,11 +181,16 @@ class ModalSynthesizer:
 
             solver.add_assertion(constraint)
 
-            print(f"is {modal_axiom} complete", end="", flush=True)
+            print(f"is {modal_axiom} complete (partition size {len(partition)})", end="", flush=True)
 
             if solver.solve():
                 print(" ... ✘")
-                # print(complement_model.get_from_smt_model(solver.get_model()))
+
+                # smt_model = solver.get_model()
+                # print(complement_model.get_from_smt_model(smt_model))
+                # for sc in skolemized_constants:
+                #     print(smt_model[sc])
+
                 return False
             else:
                 print(" ... ✓")

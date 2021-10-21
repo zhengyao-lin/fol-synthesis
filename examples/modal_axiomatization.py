@@ -122,7 +122,7 @@ atoms = (
     modal.Atom("p"),
 )
 
-goal_theory = theory_map["FUNCTIONAL"]
+goal_theory = theory_map["CONVERGENT"]
 
 true_formulas: List[modal.Formula] = []
 synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
@@ -145,10 +145,17 @@ for formula in synthesizer.synthesize(
         modal.ModalFormulaTemplate(atoms, connectives, 2),
         modal.ModalFormulaTemplate(atoms, connectives, 3),
         # modal.ModalFormulaTemplate(atoms, connectives, 4),
+        # modal.Implication(
+        #     modal.Box(modal.Box(atoms[0])),
+        #     modal.Disjunction(
+        #         modal.Box(atoms[0]),
+        #         atoms[0],
+        #     ),
+        # ),
     ),
     theory_map["FRAME"],
     goal_theory,
-    use_negative_examples=True,
+    # use_negative_examples=True,
 ):
     true_formulas.append(formula)
 
@@ -157,4 +164,4 @@ if len(true_formulas) != 0:
     for formula in true_formulas[1:][::-1]:
         axiomtization = modal.Conjunction(axiomtization, formula)
 
-    synthesizer.check_completeness(goal_theory, axiomtization)
+    synthesizer.check_completeness(goal_theory, axiomtization, blob_depth=1)

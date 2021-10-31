@@ -1,4 +1,4 @@
-from typing import Mapping, Dict, List, Set, Iterable, Generator
+from typing import Mapping, Dict, List, Set, Iterable, Generator, Optional
 
 import synthesis.fol as fol
 from synthesis.smt import smt
@@ -117,11 +117,23 @@ class ModalSynthesizer:
             for eq_class, truth in zip(partition, valuation_vars)
         )
 
-    def check_completeness(self, goal_theory: fol.Theory, modal_axiom: Formula, blob_depth: int = 0) -> bool:
+    def check_completeness(
+        self,
+        goal_theory: fol.Theory,
+        modal_axiom: Formula,
+        blob_depth: int = 0,
+        timeout: int = 0,
+        debug: bool = True,
+    ) -> bool:
         """
         Check if the given axiom is complete for a FO characterization goal_theory
+        timeout <= 0 for no timeout
         """
-        with smt.Solver(name="z3") as solver:
+        options = {}
+        if timeout >= 0:
+            options["timeout"] = timeout
+
+        with smt.Solver(name="z3", solver_options=options) as solver:
             # check that the axiom does not hold on a non-model of the goal_theory
             complement_model = fol.FOModelTemplate(fol.Theory.empty_theory(self.language), default_sort=smt.INT)
             # complement_model = fol.FiniteFOModelTemplate(fol.Theory.empty_theory(self.language), { self.sort_world: 6 })
@@ -179,12 +191,17 @@ class ModalSynthesizer:
                 for constant in skolemized_constants
             )
 
+            # for constant in skolemized_constants:
+            #     constraint = carrier_world.universally_quantify(constant, constraint)
+
             solver.add_assertion(constraint)
 
-            print(f"is {modal_axiom} complete (partition size {len(partition)})", end="", flush=True)
+            if debug:
+                print(f"is {modal_axiom} complete ({len(skolemized_constants)} base world(s), partition size {len(partition)})", end="", flush=True)
 
             if solver.solve():
-                print(" ... ✘")
+                if debug:
+                    print(" ... ✘")
 
                 # smt_model = solver.get_model()
                 # print(complement_model.get_from_smt_model(smt_model))
@@ -193,7 +210,8 @@ class ModalSynthesizer:
 
                 return False
             else:
-                print(" ... ✓")
+                if debug:
+                    print(" ... ✓")
                 return True
 
     def complement_theory(self, theory: fol.Theory) -> fol.Theory:
@@ -206,6 +224,37 @@ class ModalSynthesizer:
             ),
         )
 
+    def check_validity(
+        self,
+        goal_theory: fol.Theory,
+        axiom: Formula,
+    ) -> bool:
+        """
+        Check if the given modal formula is valid in the goal theory
+        """
+        atoms = axiom.get_atoms()
+        atom_interpretatins = {}
+
+        for atom in atoms:
+            atom_interpretatins[atom] = fol.RelationSymbol((self.sort_world,), atom.name)
+
+        with smt.Solver(name="z3") as solver:
+            extended_theory = goal_theory.expand_language(fol.Language(
+                (self.sort_world,),
+                (),
+                tuple(atom_interpretatins.values()),
+            ))
+
+            goal_model = fol.FOModelTemplate(extended_theory)
+
+            solver.add_assertion(goal_model.get_constraint())
+            solver.add_assertion(smt.Not(self.interpret_on_fo_structure(axiom, goal_model, atom_interpretatins)))
+
+            if solver.solve():
+                return False
+            else:
+                return True
+
     def synthesize(
         self,
         formula_templates: Iterable[Formula],
@@ -213,8 +262,10 @@ class ModalSynthesizer:
         goal_theory: fol.Theory,
         model_size_bound: int = 4,
         use_negative_examples: bool = False,
+        debug: bool = True,
+        check_soundness: bool = False,
         # NOTE: setting use_negative_examples to true may rule out some overapproximating formulas
-    ) -> Generator[Formula, None, None]:
+    ) -> Generator[Tuple[Formula, Optional[fol.SymbolicStructure]], None, None]:
         # get all atoms used
         atoms: Set[Atom] = set()
         for template in formula_templates:
@@ -282,7 +333,9 @@ class ModalSynthesizer:
                         smt_model = solver1.get_model()
                         candidate = formula_template.get_from_smt_model(smt_model)
                         candidate = candidate.simplify()
-                        print(candidate, end="", flush=True)
+
+                        if debug:
+                            print(candidate, end="", flush=True)
                         
                         # new negative example
                         if use_negative_examples:
@@ -295,13 +348,21 @@ class ModalSynthesizer:
                             solver2.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, goal_model, atom_symbols)))
 
                             if solver2.solve():
-                                print(" ... ✘")
+                                if debug:
+                                    print(" ... ✘")
                                 # add the positive_example
                                 positive_example = goal_model.get_from_smt_model(solver2.get_model())
                                 positive_examples.append(positive_example)
                                 new_positive_examples.append(positive_example)
+
+                                yield candidate, positive_example
                             else:
-                                print(" ... ✓")
-                                yield candidate
+                                if check_soundness:
+                                    sound = self.check_validity(goal_theory, candidate)
+                                    assert sound, f"axiom {candidate} is not sound"
+
+                                if debug:
+                                    print(" ... ✓")
                                 true_formulas.append(candidate)
                                 new_true_formulas.append(candidate)
+                                yield candidate, None

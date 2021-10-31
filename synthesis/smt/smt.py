@@ -12,6 +12,7 @@ from pysmt.shortcuts import ( # type: ignore
 )
 from pysmt.typing import BOOL, INT, BVType, FunctionType, ArrayType, Type # type: ignore
 from pysmt.smtlib.parser import SmtLibParser # type: ignore
+from pysmt.oracles import QuantifierOracle # type: ignore
 
 from pysmt.shortcuts import Function as Apply
 
@@ -49,6 +50,10 @@ def push_solver(solver: Solver) -> Generator[None, None, None]:
         yield
     finally:
         solver.pop()
+
+
+def is_qfree(formula: SMTTerm) -> bool:
+    return QuantifierOracle().is_qf(formula) # type: ignore
 
 
 class SMTLIB:

@@ -1,5 +1,7 @@
 from typing import Iterable, Generator
 
+import time
+
 from synthesis import *
 from synthesis import modal
 
@@ -118,50 +120,57 @@ end
 #     modal.Box(modal.Diamond(atom_p)),
 # ),
 
-atoms = (
-    modal.Atom("p"),
-)
+def find_axioms_for_theory(atoms: Tuple[modal.Atom, ...], goal_theory: Theory) -> None:
+    true_formulas: List[modal.Formula] = []
+    synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
 
-goal_theory = theory_map["CONVERGENT"]
+    connectives = (
+        modal.Connective(modal.Falsum, 0),
+        modal.Connective(modal.Verum, 0),
 
-true_formulas: List[modal.Formula] = []
-synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
+        modal.Connective(modal.Implication, 2),
+        modal.Connective(modal.Disjunction, 2),
+        modal.Connective(modal.Conjunction, 2),
+        modal.Connective(modal.Negation, 1),
 
-connectives = (
-    modal.Connective(modal.Falsum, 0),
-    modal.Connective(modal.Verum, 0),
+        modal.Connective(modal.Box, 1),
+        modal.Connective(modal.Diamond, 1),
+    )
 
-    modal.Connective(modal.Implication, 2),
-    modal.Connective(modal.Disjunction, 2),
-    modal.Connective(modal.Conjunction, 2),
-    modal.Connective(modal.Negation, 1),
+    begin = time.time()
 
-    modal.Connective(modal.Box, 1),
-    modal.Connective(modal.Diamond, 1),
-)
+    for formula, counterexample in synthesizer.synthesize(
+        (
+            modal.ModalFormulaTemplate(atoms, connectives, 2),
+            modal.ModalFormulaTemplate(atoms, connectives, 3),
+        ),
+        theory_map["FRAME"],
+        goal_theory,
+        debug=False,
+        check_soundness=True,
+        # use_negative_examples=True,
+    ):
+        if counterexample is None:
+            true_formulas.append(formula)
+            print(f"  {formula}")
 
-for formula in synthesizer.synthesize(
-    (
-        modal.ModalFormulaTemplate(atoms, connectives, 2),
-        modal.ModalFormulaTemplate(atoms, connectives, 3),
-        # modal.ModalFormulaTemplate(atoms, connectives, 4),
-        # modal.Implication(
-        #     modal.Box(modal.Box(atoms[0])),
-        #     modal.Disjunction(
-        #         modal.Box(atoms[0]),
-        #         atoms[0],
-        #     ),
-        # ),
-    ),
-    theory_map["FRAME"],
-    goal_theory,
-    # use_negative_examples=True,
-):
-    true_formulas.append(formula)
+    print(f"  - synthesis spent: {time.time() - begin}s")
+    begin = time.time()
 
-if len(true_formulas) != 0:
-    axiomtization = true_formulas[0]
-    for formula in true_formulas[1:][::-1]:
-        axiomtization = modal.Conjunction(axiomtization, formula)
+    if len(true_formulas) != 0:
+        axiomtization = true_formulas[0]
+        for formula in true_formulas[1:][::-1]:
+            axiomtization = modal.Conjunction(axiomtization, formula)
 
-    synthesizer.check_completeness(goal_theory, axiomtization, blob_depth=1)
+        try:
+            synthesizer.check_completeness(goal_theory, axiomtization, blob_depth=0, timeout=300 * 1000, debug=False)
+        except:
+            print(f"  - completeness check failed")
+        else:
+            print(f"  - completeness check spent: {time.time() - begin}s")
+
+
+for theory_name in theory_map:
+    if theory_name != "FRAME":
+        print(f"# synthesizing for theory {theory_name}")
+        find_axioms_for_theory((modal.Atom("p"),), theory_map[theory_name])

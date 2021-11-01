@@ -102,7 +102,7 @@ class Conjunction(Formula):
     right: Formula
 
     def __str__(self) -> str:
-        return f"({self.left} /\\ {self.right})"
+        return f"({self.left} ∧ {self.right})"
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.And(
@@ -163,7 +163,7 @@ class Disjunction(Formula):
     right: Formula
 
     def __str__(self) -> str:
-        return f"({self.left} \\/ {self.right})"
+        return f"({self.left} ∨ {self.right})"
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Or(
@@ -221,7 +221,7 @@ class Implication(Formula):
     right: Formula
 
     def __str__(self) -> str:
-        return f"({self.left} -> {self.right})"
+        return f"({self.left} → {self.right})"
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Implies(
@@ -282,7 +282,7 @@ class Equivalence(Formula):
     right: Formula
 
     def __str__(self) -> str:
-        return f"({self.left} <-> {self.right})"
+        return f"({self.left} ⟷ {self.right})"
 
     def interpret(self, frame: Frame, valuation: Mapping[Atom, smt.SMTFunction], world: smt.SMTTerm) -> smt.SMTTerm:
         return smt.Iff(

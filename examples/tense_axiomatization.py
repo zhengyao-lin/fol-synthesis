@@ -29,7 +29,7 @@ theory LIN-B extending FRAME
     axiom forall x: W, y: W, z: W. R(x, z) /\ R(y, z) -> R(x, y) \/ x = y \/ R(y, x)
 end
 
-theory LIN extending TRANSITIVE
+theory LIN extending FRAME
     axiom forall x: W, y: W. R(x, y) \/ x = y \/ R(y, x)
 end
 
@@ -95,83 +95,94 @@ connectives = (
     modal.Connective(lambda phi: modal.DiamondPast(modal.Diamond(phi)), 1),
 )
 
-for formula in synthesizer.synthesize(
+for formula, counterexample in synthesizer.synthesize(
     (
+        # modal.ModalFormulaTemplate(atoms, connectives, 3),
+        # modal.ModalFormulaTemplate(atoms, connectives, 4),
+        modal.Implication(
+            modal.Disjunction(
+                modal.Diamond(modal.DiamondPast(atoms[0])),
+                modal.DiamondPast(modal.Diamond(atoms[0])),
+            ),
+            modal.Disjunction(
+                modal.DiamondPast(atoms[0]),
+                modal.Disjunction(
+                    modal.Diamond(atoms[0]),
+                    atoms[0],
+                ),
+            ),
+        ),
         modal.ModalFormulaTemplate(atoms, connectives, 3),
-        
-        # LIN
-        # modal.Implication(
-        #     modal.Disjunction(
-        #         modal.Diamond(modal.DiamondPast(atoms[0])),
-        #         modal.DiamondPast(modal.Diamond(atoms[0])),
-        #     ),
-        #     modal.Disjunction(
-        #         modal.DiamondPast(atoms[0]),
-        #         modal.Disjunction(
-        #             modal.Diamond(atoms[0]),
-        #             atoms[0],
-        #         ),
-        #     ),
-        # ),
-
-        # LIN-F
-        # modal.Implication(
-        #     modal.DiamondPast(modal.Diamond(atoms[0])),
-        #     modal.Disjunction(
-        #         modal.DiamondPast(atoms[0]),
-        #         modal.Disjunction(
-        #             modal.Diamond(atoms[0]),
-        #             atoms[0],
-        #         ),
-        #     ),
-        # ),
-
-        # LIN-B
-        # modal.Implication(
-        #     modal.Diamond(modal.DiamondPast(atoms[0])),
-        #     modal.Disjunction(
-        #         modal.DiamondPast(atoms[0]),
-        #         modal.Disjunction(
-        #             modal.Diamond(atoms[0]),
-        #             atoms[0],
-        #         ),
-        #     ),
-        # ),
-
-        # DISCR-F
-        # modal.Implication(
-        #     modal.Conjunction(
-        #         modal.Diamond(modal.Verum()),
-        #         modal.Conjunction(
-        #             atoms[0],
-        #             modal.BoxPast(atoms[0]),
-        #         ),
-        #     ),
-        #     modal.Diamond(modal.BoxPast(atoms[0])),
-        # ),
-        
-        # DISCR-B
-        # modal.Implication(
-        #     modal.Conjunction(
-        #         modal.DiamondPast(modal.Verum()),
-        #         modal.Conjunction(
-        #             atoms[0],
-        #             modal.Box(atoms[0]),
-        #         ),
-        #     ),
-        #     modal.DiamondPast(modal.Box(atoms[0])),
-        # ),
     ),
     theory_map["FRAME"],
     goal_theory,
-    model_size_bound=3,
-    use_negative_examples=True,
+    model_size_bound=6,
+    # use_negative_examples=True,
+    debug=False,
+    check_soundness=True,
 ):
-    true_formulas.append(formula)
+    if counterexample is None:
+        print(formula)
 
-if len(true_formulas) != 0:
-    axiomtization = true_formulas[0]
-    for formula in true_formulas[1:][::-1]:
-        axiomtization = modal.Conjunction(axiomtization, formula)
+# LIN
+# modal.Implication(
+#     modal.Disjunction(
+#         modal.Diamond(modal.DiamondPast(atoms[0])),
+#         modal.DiamondPast(modal.Diamond(atoms[0])),
+#     ),
+#     modal.Disjunction(
+#         modal.DiamondPast(atoms[0]),
+#         modal.Disjunction(
+#             modal.Diamond(atoms[0]),
+#             atoms[0],
+#         ),
+#     ),
+# ),
 
-    synthesizer.check_completeness(goal_theory, axiomtization.simplify())
+# LIN-F
+# modal.Implication(
+#     modal.DiamondPast(modal.Diamond(atoms[0])),
+#     modal.Disjunction(
+#         modal.DiamondPast(atoms[0]),
+#         modal.Disjunction(
+#             modal.Diamond(atoms[0]),
+#             atoms[0],
+#         ),
+#     ),
+# ),
+
+# LIN-B
+# modal.Implication(
+#     modal.Diamond(modal.DiamondPast(atoms[0])),
+#     modal.Disjunction(
+#         modal.DiamondPast(atoms[0]),
+#         modal.Disjunction(
+#             modal.Diamond(atoms[0]),
+#             atoms[0],
+#         ),
+#     ),
+# ),
+
+# DISCR-F
+# modal.Implication(
+#     modal.Conjunction(
+#         modal.Diamond(modal.Verum()),
+#         modal.Conjunction(
+#             atoms[0],
+#             modal.BoxPast(atoms[0]),
+#         ),
+#     ),
+#     modal.Diamond(modal.BoxPast(atoms[0])),
+# ),
+
+# DISCR-B
+# modal.Implication(
+#     modal.Conjunction(
+#         modal.DiamondPast(modal.Verum()),
+#         modal.Conjunction(
+#             atoms[0],
+#             modal.Box(atoms[0]),
+#         ),
+#     ),
+#     modal.DiamondPast(modal.Box(atoms[0])),
+# ),

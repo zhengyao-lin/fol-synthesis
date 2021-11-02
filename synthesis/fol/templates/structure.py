@@ -38,15 +38,17 @@ class UninterpretedStructureTemplate(SymbolicStructure, StructureTemplate):
                 # TODO
                 carriers[sort] = RefinementCarrierSet(default_sort or smt.FreshSort())
 
+        super().__init__(language, carriers, {}, {})
+
         for function_symbol in language.function_symbols:
             if function_symbol.smt_hook is None:
-                smt_input_sorts = tuple(carriers[sort].get_smt_sort() for sort in function_symbol.input_sorts)
-                smt_output_sort = carriers[function_symbol.output_sort].get_smt_sort()
+                smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in function_symbol.input_sorts)
+                smt_output_sort = self.interpret_sort(function_symbol.output_sort).get_smt_sort()
                 function_interpretations[function_symbol] = smt.FreshFunction(smt_input_sorts, smt_output_sort)
 
         for relation_symbol in language.relation_symbols:
             if relation_symbol.smt_hook is None:
-                smt_input_sorts = tuple(carriers[sort].get_smt_sort() for sort in relation_symbol.input_sorts)
+                smt_input_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in relation_symbol.input_sorts)
                 relation_interpretations[relation_symbol] = smt.FreshFunction(smt_input_sorts, smt.BOOL)
 
         super().__init__(language, carriers, function_interpretations, relation_interpretations)

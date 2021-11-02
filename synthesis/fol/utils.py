@@ -1,3 +1,10 @@
+from typing import Generator, Set, Collection
+from collections import OrderedDict
+
+import itertools
+
+from synthesis.utils.ordered import OrderedSet
+
 from .base import *
 
 
@@ -38,3 +45,38 @@ class FOLUtils:
             return type(formula)(formula.variable, FOLUtils.substitute_relation_application(relation_symbol, substitute, free_vars, formula.body))
 
         assert False, f"unsupported formula {formula}"
+
+    @staticmethod
+    def get_ground_terms_in_language(language: Language, depth: int) -> Mapping[Sort, Collection[Term]]:
+        """
+        Depth 1 for constants
+        Depth 2 for functions applied to constants
+        ...
+        """
+
+        terms: OrderedDict[Sort, OrderedSet[Term]] = OrderedDict()
+        new_terms: OrderedDict[Sort, OrderedSet[Term]] = OrderedDict()
+
+        for _ in range(depth):
+            for symbol in language.function_symbols:
+                arg_combinations = tuple(terms.get(input_sort, OrderedSet()) for input_sort in symbol.input_sorts)
+
+                for args in itertools.product(*arg_combinations):
+                    new_term = Application(symbol, args)
+
+                    if symbol.output_sort not in terms or \
+                       new_term not in terms[symbol.output_sort]:
+                        if symbol.output_sort not in new_terms:
+                            new_terms[symbol.output_sort] = OrderedSet()
+
+                        new_terms[symbol.output_sort].add(new_term)
+                        # yield new_term
+
+            # merge new_terms to terms
+            for sort in new_terms:
+                if sort not in terms:
+                    terms[sort] = OrderedSet()
+                terms[sort].update(new_terms[sort])
+            new_terms = OrderedDict()
+
+        return terms # type: ignore

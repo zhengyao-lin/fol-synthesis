@@ -75,10 +75,18 @@ templates = (
 trivial_model = UninterpretedStructureTemplate(uninterp_theory.language)
 std_model = FOModelTemplate(real_theory, {})
 
+# for _ in CEGISynthesizer().synthesize_for_one_model(
+#     templates,
+#     trivial_model,
+#     std_model,
+#     np_indep_language=uninterp_theory.language,
+#     np_indep_depth=2,
+# ): ...
+
 examples: Set[smt.SMTTerm] = set()
 
 with smt.Solver(name="z3") as solver1, \
-     smt.Solver(name="cvc4", logic="UFLIRA") as solver2:
+     smt.Solver(name="z3") as solver2:
 
     true_formulas: List[Formula] = []
     new_true_formulas: List[Formula] = []
@@ -91,7 +99,6 @@ with smt.Solver(name="z3") as solver1, \
             free_vars = tuple(template.get_free_variables())
 
             free_var_valuation1 = { var: trivial_model.interpret_sort(var.sort).get_fresh_constant(solver1) for var in free_vars }
-            free_var_valuation2 = { var: std_model.interpret_sort(var.sort).get_fresh_constant(solver2) for var in free_vars }
             
             # re-add all true formulas
             new_true_formulas = true_formulas
@@ -113,6 +120,7 @@ with smt.Solver(name="z3") as solver1, \
                     formula_free_vars = tuple(true_formula.get_free_variables())
 
                     # term instantiation using free_var_valuation1
+                    # TODO: this doesn't work right with pi-2 statements
                     for assignment in itertools.product(tuple(free_var_valuation1.values()), repeat=len(formula_free_vars)):
                         valuation = dict(zip(formula_free_vars, assignment))
                         solver1.add_assertion(true_formula.interpret(trivial_model, valuation))
@@ -131,6 +139,10 @@ with smt.Solver(name="z3") as solver1, \
                 print(f"{candidate} ... ", end="", flush=True)
 
                 with smt.push_solver(solver2):
+                    free_var_valuation2 = {
+                        var: std_model.interpret_sort(var.sort).get_fresh_constant(solver2)
+                        for var in candidate.get_free_variables()
+                    }
                     # print(smt.Not(candidate.interpret(std_model, free_var_valuation2)).to_smtlib())
                     solver2.add_assertion(smt.Not(candidate.interpret(std_model, free_var_valuation2)))
 
@@ -141,7 +153,6 @@ with smt.Solver(name="z3") as solver1, \
                         model = solver2.get_model()
                         for free_var in free_var_valuation2.values():
                             examples.add(model[free_var])
-                    
                     else:
                         print("✓")
                         true_formulas.append(candidate)

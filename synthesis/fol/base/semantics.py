@@ -50,6 +50,40 @@ class Structure(ABC):
     def get_smt_sort(self, sort: Sort) -> smt.SMTSort:
         return self.interpret_sort(sort).get_smt_sort()
 
+    def get_fresh_function(self, solver: smt.SMTSolver, symbol: FunctionSymbol) -> smt.SMTFunction:
+        assert symbol.smt_hook is None
+
+        if len(symbol.input_sorts) == 0:
+            constant = self.interpret_sort(symbol.output_sort).get_fresh_constant(solver)
+            return lambda: constant
+
+        input_smt_sorts = tuple(self.interpret_sort(sort).get_smt_sort() for sort in symbol.input_sorts)
+
+        output_carrier = self.interpret_sort(symbol.output_sort)
+        output_smt_sort = output_carrier.get_smt_sort()
+
+        smt_function = smt.FreshFunction(input_smt_sorts, output_smt_sort)
+
+        # if we have no refinemenet, there is no need to add any constraint
+        if isinstance(output_carrier, RefinementCarrierSet) and \
+           output_carrier.predicate(smt.FreshSymbol(output_smt_sort)).is_true():
+            return smt_function
+
+        # add constraint that the function is in-range
+        fresh_inputs = tuple(smt.FreshSymbol(sort) for sort in input_smt_sorts)
+        fresh_output = smt.FreshSymbol(output_smt_sort)
+
+        # forall inputs, exists output, output = f(inputs)
+        constraint = output_carrier.existentially_quantify(fresh_output, smt.Equals(fresh_output, smt_function(*fresh_inputs)))
+
+        for fresh_input, sort in zip(fresh_inputs, symbol.input_sorts):
+            constraint = self.interpret_sort(sort).universally_quantify(fresh_input, constraint)
+
+        # NOTE: this may introduce quantified SMT formulas
+        solver.add_assertion(constraint)
+
+        return smt_function
+
 
 @dataclass
 class RefinementCarrierSet(CarrierSet):

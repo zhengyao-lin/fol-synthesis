@@ -174,3 +174,10 @@ class Language:
             self.function_symbols + (symbol,),
             self.relation_symbols,
         )
+
+    def expand_with_functions(self, symbols: Iterable[FunctionSymbol]) -> Language:
+        language = self
+        for symbol in symbols:
+            language = language.expand_with_function(symbol)
+            
+        return language

@@ -33,8 +33,8 @@ end
 
 language = nat_theory.language.get_sublanguage(
     ("Nat",),
-    ("add", "zero", "one"),
-    ("eq",),
+    ("add", "zero"),
+    ("eq", "le"),
 )
 
 # language_zero = nat_theory.language.get_sublanguage(
@@ -75,6 +75,9 @@ templates = (
     #     ),
     #     AtomicFormulaTemplate(language, (x, y, z), 0),
     # ),
+    AtomicFormulaTemplate(language, (), 0),
+    AtomicFormulaTemplate(language, (), 1),
+    AtomicFormulaTemplate(language, (), 2),
     QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 0),
     QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 1),
     QuantifierFreeFormulaTemplate(language, (x, y, z), 1, 0),
@@ -86,6 +89,14 @@ templates = (
 
 trivial_model = UninterpretedStructureTemplate(uninterp_theory.language)
 std_model = FOModelTemplate(nat_theory, {})
+
+# for _ in CEGISynthesizer(check_no_quantifiers=True).synthesize_for_one_model(
+#     templates,
+#     trivial_model,
+#     std_model,
+#     np_indep_language=uninterp_theory.language,
+#     np_indep_depth=2,
+# ): ...
 
 examples: Set[smt.SMTTerm] = set()
 

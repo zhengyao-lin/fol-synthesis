@@ -58,6 +58,9 @@ class Formula(BaseAST, Template["Formula"], Interpretable["Formula"], ABC):
     def strip_universal_quantifiers(self) -> Formula:
         return self
 
+    def is_qfree(self) -> bool:
+        raise NotImplementedError()
+
     def __hash__(self) -> int:
         raise NotImplementedError()
 
@@ -168,6 +171,9 @@ class Falsum(Formula):
     def equals(self, value: Formula) -> smt.SMTTerm:
         return smt.Bool(self == value)
 
+    def is_qfree(self) -> bool:
+        return True
+
 
 @dataclass(frozen=True)
 class Verum(Formula):
@@ -191,6 +197,9 @@ class Verum(Formula):
 
     def equals(self, value: Formula) -> smt.SMTTerm:
         return smt.Bool(self == value)
+
+    def is_qfree(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -230,6 +239,9 @@ class RelationApplication(Formula):
         if not isinstance(value, RelationApplication) or value.relation_symbol != self.relation_symbol:
             return smt.FALSE()
         return smt.And(*(argument.equals(other_argument) for argument, other_argument in zip(self.arguments, value.arguments)))
+
+    def is_qfree(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -271,6 +283,9 @@ class Equality(Formula):
             self.left.equals(value.left),
             self.right.equals(value.right),
         )
+    
+    def is_qfree(self) -> bool:
+        return True
 
 
 AtomicFormula = Union[Verum, Falsum, RelationApplication, Equality]
@@ -328,6 +343,9 @@ class Conjunction(Formula):
             self.right.equals(value.right),
         )
 
+    def is_qfree(self) -> bool:
+        return self.left.is_qfree() and self.right.is_qfree()
+
 
 @dataclass(frozen=True)
 class Disjunction(Formula):
@@ -381,6 +399,9 @@ class Disjunction(Formula):
             self.right.equals(value.right),
         )
 
+    def is_qfree(self) -> bool:
+        return self.left.is_qfree() and self.right.is_qfree()
+
 
 @dataclass(frozen=True)
 class Negation(Formula):
@@ -408,6 +429,9 @@ class Negation(Formula):
         if not isinstance(value, Negation):
             return smt.FALSE()
         return self.formula.equals(value.formula)
+
+    def is_qfree(self) -> bool:
+        return self.formula.is_qfree()
 
 
 @dataclass(frozen=True)
@@ -450,6 +474,9 @@ class Implication(Formula):
             self.right.equals(value.right),
         )
 
+    def is_qfree(self) -> bool:
+        return self.left.is_qfree() and self.right.is_qfree()
+
 
 @dataclass(frozen=True)
 class Equivalence(Formula):
@@ -490,6 +517,9 @@ class Equivalence(Formula):
             self.left.equals(value.left),
             self.right.equals(value.right),
         )
+
+    def is_qfree(self) -> bool:
+        return self.left.is_qfree() and self.right.is_qfree()
 
 
 @dataclass(frozen=True)
@@ -536,6 +566,9 @@ class UniversalQuantification(Formula):
     def strip_universal_quantifiers(self) -> Formula:
         return self.body.strip_universal_quantifiers()
 
+    def is_qfree(self) -> bool:
+        return False
+
 
 @dataclass(frozen=True)
 class ExistentialQuantification(Formula):
@@ -577,3 +610,6 @@ class ExistentialQuantification(Formula):
            value.variable != self.variable:
             return smt.FALSE()
         return self.body.equals(value.body)
+
+    def is_qfree(self) -> bool:
+        return False

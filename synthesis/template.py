@@ -36,8 +36,8 @@ class Template(Generic[T], ABC):
 #         self.variable = smt.FreshSymbol(typename=smt.BVType(self.num_bits))
 
 #     def get_constraint(self) -> smt.SMTTerm:
-#         # TODO
-#         return smt.TRUE()
+#         raise NotImplementedError()
+#         # return smt.TRUE()
 
 #     def get_from_smt_model(self, model: smt.SMTModel) -> int:
 #         return model[self.variable].bv2nat() + self.lower # type: ignore

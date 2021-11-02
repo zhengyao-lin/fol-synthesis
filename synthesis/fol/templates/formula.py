@@ -40,6 +40,7 @@ class TermTemplate(Term):
     def substitute(self, substitution: Mapping[Variable, Term]) -> TermTemplate:
         # TODO: check sorting
         new_template = TermTemplate(self.language, self.free_vars, self.depth, self.sort)
+        new_template.node = self.node
         new_template.substitution = { k: v.substitute(substitution) for k, v in self.substitution.items() }
         new_template.subterms = tuple(subterm.substitute(substitution) for subterm in self.subterms)
         return new_template
@@ -150,9 +151,7 @@ class TermTemplate(Term):
             if node_value <= len(self.free_vars):
                 variable = self.free_vars[node_value - 1]
                 if variable.sort == sort:
-                    assert variable in valuation, f"unable to interpret variable {variable}"
                     interp = smt.Ite(self.node.equals(node_value), self.substitution[variable].interpret(structure, valuation), interp)
-
             else:
                 symbol = self.language.function_symbols[node_value - len(self.free_vars) - 1]
                 arity = len(symbol.input_sorts)
@@ -191,8 +190,16 @@ class AtomicFormulaTemplate(Formula):
 
         return free_vars
 
+    def is_qfree(self) -> bool:
+        return True
+
     def substitute(self, substitution: Mapping[Variable, Term]) -> AtomicFormulaTemplate:
+        """
+        NOTE: the new formula's control variable is the same as the old one
+        this may not be intended in some case
+        """
         new_formula = AtomicFormulaTemplate(self.language, (), self.term_depth, self.allow_constant)
+        new_formula.node = self.node
         new_formula.subterms = tuple(subterm.substitute(substitution) for subterm in self.subterms)
         return new_formula
 
@@ -338,8 +345,12 @@ class QuantifierFreeFormulaTemplate(Formula):
 
         return free_vars
 
+    def is_qfree(self) -> bool:
+        return True
+
     def substitute(self, substitution: Mapping[Variable, Term]) -> QuantifierFreeFormulaTemplate:
         new_formula = QuantifierFreeFormulaTemplate(self.language, (), self.term_depth, self.formula_depth)
+        new_formula.node = self.node
         new_formula.atom = self.atom.substitute(substitution)
         new_formula.subformulas = tuple(subformula.substitute(substitution) for subformula in self.subformulas)
         return new_formula

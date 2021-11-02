@@ -205,7 +205,7 @@ language = theory.language.get_sublanguage(
 )
 listlen_symbol = theory.language.get_relation_symbol("listlen")
 
-for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+for candidate, counterexample in CEGISynthesizer(debug=False).synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaTemplate(language, (x,), 0),
@@ -235,7 +235,6 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
     goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
-    debug=False,
 ):
     if counterexample is None: print(candidate)
 
@@ -250,7 +249,7 @@ language = theory.language.get_sublanguage(
     ("lsegr", "lseg"),
 )
 
-for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+for candidate, counterexample in CEGISynthesizer(debug=False).synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaTemplate(language, (x,), 0),
@@ -259,7 +258,6 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
     goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
-    debug=False,
 ):
     if counterexample is None: print(candidate)
 
@@ -275,7 +273,7 @@ language = theory.language.get_sublanguage(
 )
 dlistlen_symbol = theory.language.get_relation_symbol("dlistlen")
 
-for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+for candidate, counterexample in CEGISynthesizer(debug=False).synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaTemplate(language, (x, y), 0),
@@ -291,7 +289,6 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
     goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
-    debug=False,
 ):
     if counterexample is None: print(candidate)
 
@@ -307,7 +304,7 @@ language = theory.language.get_sublanguage(
 )
 slistlen_symbol = theory.language.get_relation_symbol("slistlen")
 
-for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+for candidate, counterexample in CEGISynthesizer(debug=False).synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaTemplate(language, (x, y), 0),
@@ -323,7 +320,6 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
     goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
-    debug=False,
 ):
     if counterexample is None: print(candidate)
 
@@ -339,7 +335,7 @@ language = theory.language.get_sublanguage(
 )
 leftmost_symbol = theory.language.get_relation_symbol("leftmost")
 
-for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
+for candidate, counterexample in CEGISynthesizer(debug=False).synthesize_for_model_classes(
     (
         Implication(
             AtomicFormulaTemplate(language, (x, y), 0),
@@ -355,6 +351,5 @@ for candidate, counterexample in CEGISynthesizer().synthesize_for_model_classes(
     ),
     trivial_model=FOProvableStructureTemplate(theory, unfold_depth=1),
     goal_model=FiniteLFPModelTemplate(theory, size_bounds={ sort_pointer: 4 }),
-    debug=False,
 ):
     if counterexample is None: print(candidate)

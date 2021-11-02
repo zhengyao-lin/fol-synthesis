@@ -167,6 +167,15 @@ class NaturalProof:
             else:
                 return body_name
 
+        elif isinstance(ast, Formula) and ast.is_qfree():
+            var_name = default
+
+            for free_var in ast.get_free_variables():
+                if len(free_var.name) >= len(var_name):
+                    var_name = free_var.name
+                
+            return var_name
+
         assert False, f"unsupported ast {ast}"
 
     @staticmethod
@@ -228,6 +237,9 @@ class NaturalProof:
             body_quants, body_prenex = NaturalProof.prenex_normalize(formula.body, var_index + 1, var_prefix)
             renamed_var = Variable(f"{var_prefix}{var_index}", formula.variable.sort)
             return ((renamed_var, QuantifierKind.EXISTENTIAL),) + body_quants, body_prenex.substitute({ formula.variable: renamed_var })
+
+        elif formula.is_qfree():
+            return (), formula
 
         assert False, f"unsupported formula {formula}"
 
@@ -352,7 +364,7 @@ class NaturalProof:
         negated_goal = Negation(goal).quantify_all_free_variables()
         language, skolemized_negated_goal = NaturalProof.skolemize(language, negated_goal)
 
-        normalized_formulas.append(skolemized_negated_goal)
+        normalized_formulas = [skolemized_negated_goal] + normalized_formulas
 
         # theory |= goal
         # iff theory /\ not goal is unsatisfiable

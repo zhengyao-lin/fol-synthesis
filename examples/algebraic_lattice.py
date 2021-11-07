@@ -47,7 +47,7 @@ lattice = theory_map["LATTICE"]
 order_language = lattice_language.get_sublanguage(
     ("Lattice",),
     (),
-    ("le_join", "le_meet", "eq"),
+    ("le_join", "eq"),
 )
 
 sort_lattice = order_language.get_sort("Lattice")
@@ -61,21 +61,26 @@ goal_model = FiniteFOModelTemplate(lattice, size_bounds={ sort_lattice: 4 })
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
-        AtomicFormulaTemplate(order_language, (x, y), 1),
-        Implication(
-            Conjunction(
-                AtomicFormulaTemplate(order_language, (x, y, z), 1),
-                AtomicFormulaTemplate(order_language, (x, y, z), 1),
-            ),
-            AtomicFormulaTemplate(order_language, (x, y, z), 1),
-        ),
-        ExistentialQuantification(
-            z,
-            Conjunction(
-                AtomicFormulaTemplate(order_language, (x, y, z), 1),
-                AtomicFormulaTemplate(order_language, (x, y, z), 1),
-            ),
-        ),
+        QuantifierFreeFormulaTemplate(order_language, (x, y), 0, 0),
+        QuantifierFreeFormulaTemplate(order_language, (x, y), 0, 1),
+        QuantifierFreeFormulaTemplate(order_language, (x, y, z), 0, 2),
+        ExistentialQuantification(z, QuantifierFreeFormulaTemplate(order_language, (x, y, z), 0, 2)),
+
+        # AtomicFormulaTemplate(order_language, (x, y), 1),
+        # Implication(
+        #     Conjunction(
+        #         AtomicFormulaTemplate(order_language, (x, y, z), 1),
+        #         AtomicFormulaTemplate(order_language, (x, y, z), 1),
+        #     ),
+        #     AtomicFormulaTemplate(order_language, (x, y, z), 1),
+        # ),
+        # ExistentialQuantification(
+        #     z,
+        #     Conjunction(
+        #         AtomicFormulaTemplate(order_language, (x, y, z), 1),
+        #         AtomicFormulaTemplate(order_language, (x, y, z), 1),
+        #     ),
+        # ),
     ),
     trivial_model,
     goal_model,

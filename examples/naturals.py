@@ -33,7 +33,7 @@ end
 
 language = nat_theory.language.get_sublanguage(
     ("Nat",),
-    ("add", "zero"),
+    ("add", "zero", "one"),
     ("eq", "le"),
 )
 
@@ -75,9 +75,9 @@ templates = (
     #     ),
     #     AtomicFormulaTemplate(language, (x, y, z), 0),
     # ),
-    AtomicFormulaTemplate(language, (), 0),
-    AtomicFormulaTemplate(language, (), 1),
-    AtomicFormulaTemplate(language, (), 2),
+    # AtomicFormulaTemplate(language, (), 0),
+    # AtomicFormulaTemplate(language, (), 1),
+    # AtomicFormulaTemplate(language, (), 2),
     QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 0),
     QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 1),
     QuantifierFreeFormulaTemplate(language, (x, y, z), 1, 0),

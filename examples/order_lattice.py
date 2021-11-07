@@ -65,4 +65,3 @@ for _ in CEGISynthesizer().synthesize_for_model_classes(
     trivial_model,
     goal_model,
 ): ...
-

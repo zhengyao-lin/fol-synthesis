@@ -40,36 +40,36 @@ z = Variable("z", sort_real)
 w = Variable("w", sort_real)
 
 templates = (
-    # AtomicFormulaTemplate(language, (x, y), 0),
-    # AtomicFormulaTemplate(language, (x, y), 1),
-    # Implication(
-    #     AtomicFormulaTemplate(language, (x, y), 0),
-    #     AtomicFormulaTemplate(language, (x, y), 0),
-    # ),
-    # Implication(
-    #     Conjunction(
-    #         AtomicFormulaTemplate(language, (x, y, z), 0),
-    #         AtomicFormulaTemplate(language, (x, y, z), 0),
-    #     ),
-    #     AtomicFormulaTemplate(language, (x, y, z), 0),
-    # ),
+    AtomicFormulaTemplate(language, (x, y), 0),
+    AtomicFormulaTemplate(language, (x, y), 1),
+    Implication(
+        AtomicFormulaTemplate(language, (x, y), 0),
+        AtomicFormulaTemplate(language, (x, y), 0),
+    ),
+    Implication(
+        Conjunction(
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+        ),
+        AtomicFormulaTemplate(language, (x, y, z), 0),
+    ),
 
-    # ExistentialQuantification(y, AtomicFormulaTemplate(language, (x, y), 0)),
-    # ExistentialQuantification(y, Implication(
-    #     AtomicFormulaTemplate(language, (x, y, z), 0),
-    #     Conjunction(
-    #         AtomicFormulaTemplate(language, (x, y, z), 0),
-    #         AtomicFormulaTemplate(language, (x, y, z), 0),
-    #     ),
-    # )),
+    ExistentialQuantification(y, AtomicFormulaTemplate(language, (x, y), 0)),
+    ExistentialQuantification(y, Implication(
+        AtomicFormulaTemplate(language, (x, y, z), 0),
+        Conjunction(
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+            AtomicFormulaTemplate(language, (x, y, z), 0),
+        ),
+    )),
     # QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 2),
 
-    QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 0),
-    QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 1),
-    QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 2),
-    ExistentialQuantification(z, QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 0)),
-    ExistentialQuantification(z, QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 1)),
-    ExistentialQuantification(z, QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 2)),
+    # QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 0),
+    # QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 1),
+    # QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 2),
+    # ExistentialQuantification(z, QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 0)),
+    # ExistentialQuantification(z, QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 1)),
+    # ExistentialQuantification(z, QuantifierFreeFormulaTemplate(language, (x, y, z), 0, 2)),
 )
 
 trivial_model = UninterpretedStructureTemplate(uninterp_theory.language)
@@ -120,15 +120,40 @@ with smt.Solver(name="z3") as solver1, \
                     formula_free_vars = tuple(true_formula.get_free_variables())
 
                     # term instantiation using free_var_valuation1
-                    # TODO: this doesn't work right with pi-2 statements
+                    # TODO: this doesn't work right for general alternating quantifiers
+
+                    universal_vars = tuple(true_formula.get_free_variables())
+
+                    # build Skolem functions
+                    input_sorts = tuple(var.sort for var in universal_vars)
+                    input_smt_sorts = tuple(trivial_model.interpret_sort(sort).get_smt_sort() for sort in input_sorts)
+
+                    # existential vars -> term
+                    skolem_terms = {}
+                    index = 0
+                    while isinstance(true_formula, ExistentialQuantification):
+                        skolem_function_symbol = FunctionSymbol(input_sorts, true_formula.variable.sort, f"sk{index}")
+                        skolem_function_symbol = FunctionSymbol(
+                            skolem_function_symbol.input_sorts,
+                            skolem_function_symbol.output_sort,
+                            skolem_function_symbol.name,
+                            trivial_model.get_fresh_function(solver1, skolem_function_symbol),
+                        )
+                        skolem_terms[true_formula.variable] = Application(skolem_function_symbol, universal_vars)
+
+                        true_formula = true_formula.body
+                        index += 1
+
+                    assert true_formula.is_qfree(), "unsupported alternation"
+
                     for assignment in itertools.product(tuple(free_var_valuation1.values()), repeat=len(formula_free_vars)):
                         valuation = dict(zip(formula_free_vars, assignment))
-                        solver1.add_assertion(true_formula.interpret(trivial_model, valuation))
+                        solver1.add_assertion(true_formula.substitute(skolem_terms).interpret(trivial_model, valuation))
 
                 new_true_formulas = []
 
                 # for assertion in solver1.assertions:
-                #     assert smt.is_qfree(assertion)
+                #     assert smt.is_qfree(assertion), f"quantified query: {assertion.to_smtlib()}"
 
                 if not solver1.solve():
                     break

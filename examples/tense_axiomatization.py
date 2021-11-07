@@ -70,59 +70,57 @@ atoms = (
     modal.Atom("p"),
 )
 
-goal_theory = theory_map["LIN"]
+goal_theory = theory_map["NOBEG"]
 
 true_formulas: List[modal.Formula] = []
 synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
 
 connectives = (
-    # modal.Connective(modal.Falsum, 0),
+    modal.Connective(modal.Falsum, 0),
     # modal.Connective(modal.Verum, 0),
 
     modal.Connective(modal.Implication, 2),
     modal.Connective(modal.Disjunction, 2),
-    modal.Connective(lambda a, b, c: modal.Disjunction(a, modal.Disjunction(b, c)), 3),
-    # modal.Connective(modal.Conjunction, 2),
-    # modal.Connective(modal.Negation, 1),
+    # modal.Connective(lambda a, b, c: modal.Disjunction(a, modal.Disjunction(b, c)), 3),
+    modal.Connective(modal.Conjunction, 2),
+    modal.Connective(modal.Negation, 1),
 
-    # modal.Connective(modal.Box, 1),
-    # modal.Connective(modal.BoxPast, 1),
+    modal.Connective(modal.Box, 1),
+    modal.Connective(modal.BoxPast, 1),
     modal.Connective(modal.Diamond, 1),
     modal.Connective(modal.DiamondPast, 1),
 
     # modal.Connective(lambda phi: modal.Diamond(modal.BoxPast(phi)), 1),
-    modal.Connective(lambda phi: modal.Diamond(modal.DiamondPast(phi)), 1),
-    modal.Connective(lambda phi: modal.DiamondPast(modal.Diamond(phi)), 1),
+    # modal.Connective(lambda phi: modal.Diamond(modal.DiamondPast(phi)), 1),
+    # modal.Connective(lambda phi: modal.DiamondPast(modal.Diamond(phi)), 1),
 )
 
 for formula, counterexample in synthesizer.synthesize(
     (
-        # modal.ModalFormulaTemplate(atoms, connectives, 3),
-        # modal.ModalFormulaTemplate(atoms, connectives, 4),
-        modal.Implication(
-            modal.Disjunction(
-                modal.Diamond(modal.DiamondPast(atoms[0])),
-                modal.DiamondPast(modal.Diamond(atoms[0])),
-            ),
-            modal.Disjunction(
-                modal.DiamondPast(atoms[0]),
-                modal.Disjunction(
-                    modal.Diamond(atoms[0]),
-                    atoms[0],
-                ),
-            ),
-        ),
+        modal.ModalFormulaTemplate(atoms, connectives, 1),
+        modal.ModalFormulaTemplate(atoms, connectives, 2),
         modal.ModalFormulaTemplate(atoms, connectives, 3),
+        # modal.ModalFormulaTemplate((), connectives, 3),
+        # modal.Disjunction(
+        #     modal.BoxPast(modal.Falsum()),
+        #     modal.DiamondPast(modal.BoxPast(modal.Falsum())),
+        # ),
     ),
     theory_map["FRAME"],
     goal_theory,
-    model_size_bound=6,
+    model_size_bound=4,
     # use_negative_examples=True,
-    debug=False,
+    # debug=False,
     check_soundness=True,
 ):
     if counterexample is None:
-        print(formula)
+        true_formulas.append(formula)
+
+if len(true_formulas) != 0:
+    axiomtization = true_formulas[0]
+    for formula in true_formulas[1:][::-1]:
+        axiomtization = modal.Conjunction(axiomtization, formula)
+    synthesizer.check_completeness(goal_theory, axiomtization, blob_depth=0, timeout=300 * 1000)
 
 # LIN
 # modal.Implication(

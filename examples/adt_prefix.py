@@ -34,12 +34,12 @@ theory NAT
         (y = Z() /\ z = x) \/
         (exists w1: Nat, w2: Nat. y != undefined() /\ y = S(w1) /\ add(x, w1, w2) /\ z = S(w2))
 
-    relation mul: Nat Nat Nat
-    fixpoint mul(x, y, z) =
-        ((x = undefined() \/ y = undefined()) /\ z = undefined()) \/
-        (x != undefined() /\ y = Z() /\ z = Z()) \/
-        (x != undefined() /\ y = S(Z()) /\ z = x) \/
-        (exists w1: Nat, w2: Nat. y != undefined() /\ y = S(S(w1)) /\ mul(x, S(w1), w2) /\ add(x, w2, z))
+    // relation mul: Nat Nat Nat
+    // fixpoint mul(x, y, z) =
+    //     ((x = undefined() \/ y = undefined()) /\ z = undefined()) \/
+    //     (x != undefined() /\ y = Z() /\ z = Z()) \/
+    //     (x != undefined() /\ y = S(Z()) /\ z = x) \/
+    //     (exists w1: Nat, w2: Nat. y != undefined() /\ y = S(S(w1)) /\ mul(x, S(w1), w2) /\ add(x, w2, z))
 
     axiom S(S(S(S(Z())))) != undefined()
 end
@@ -52,7 +52,7 @@ boundary = lambda x: RelationApplication(theory.language.get_relation_symbol("bo
 language = theory.language.get_sublanguage(
     ("Nat",),
     (),
-    ("mul", "add"),
+    ("add",),
 )
 
 x = Variable("x", sort_nat)
@@ -60,8 +60,9 @@ y = Variable("y", sort_nat)
 z = Variable("z", sort_nat)
 
 # trivial_model = FOProvableStructureTemplate(theory, unfold_depth=2)
-trivial_model = UninterpretedStructureTemplate(theory.language)
-goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_nat: 6 })
+# trivial_model = UninterpretedStructureTemplate(theory.language)
+trivial_model = FiniteFOModelTemplate(Theory.empty_theory(theory.language), size_bounds={ sort_nat: 5 })
+goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_nat: 5 })
 
 # with smt.Solver(name="z3") as solver:
 #     solver.add_assertion(goal_model.get_constraint())
@@ -73,10 +74,11 @@ goal_model = FiniteLFPModelTemplate(theory, size_bounds={ sort_nat: 6 })
 
 for _ in CEGISynthesizer().synthesize_for_model_classes(
     (
-        Implication(
-            AtomicFormulaTemplate(language, (x, y, z), 0),
-            AtomicFormulaTemplate(language, (x, y, z), 0),
-        ),
+        AtomicFormulaTemplate(language, (x,), 0),
+        # Implication(
+        #     AtomicFormulaTemplate(language, (x, y, z), 0),
+        #     AtomicFormulaTemplate(language, (x, y, z), 0),
+        # ),
         # Implication(
         #     Conjunction(
         #         AtomicFormulaTemplate(language, (x, y, z), 0),

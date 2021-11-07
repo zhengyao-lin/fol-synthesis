@@ -36,7 +36,7 @@ class UninterpretedStructureTemplate(SymbolicStructure, StructureTemplate):
         for sort in language.sorts:
             if sort.smt_hook is None:
                 # TODO
-                carriers[sort] = RefinementCarrierSet(default_sort or smt.FreshSort())
+                carriers[sort] = RefinementCarrierSet(default_sort if default_sort is not None else smt.FreshSort())
 
         super().__init__(language, carriers, {}, {})
 

@@ -47,7 +47,7 @@ class FOLUtils:
         assert False, f"unsupported formula {formula}"
 
     @staticmethod
-    def get_ground_terms_in_language(language: Language, depth: int) -> Mapping[Sort, Collection[Term]]:
+    def get_ground_terms_in_language(language: Language, depth: int, free_vars: Tuple[Term, ...] = ()) -> Mapping[Sort, Collection[Term]]:
         """
         Depth 1 for constants
         Depth 2 for functions applied to constants
@@ -57,7 +57,13 @@ class FOLUtils:
         terms: OrderedDict[Sort, OrderedSet[Term]] = OrderedDict()
         new_terms: OrderedDict[Sort, OrderedSet[Term]] = OrderedDict()
 
-        for _ in range(depth):
+        for current_depth in range(depth):
+            if current_depth == 0:
+                for free_var in free_vars:
+                    if free_var.sort not in new_terms:
+                        new_terms[free_var.sort] = OrderedSet()
+                    new_terms[free_var.sort].add(free_var)
+
             for symbol in language.function_symbols:
                 arg_combinations = tuple(terms.get(input_sort, OrderedSet()) for input_sort in symbol.input_sorts)
 

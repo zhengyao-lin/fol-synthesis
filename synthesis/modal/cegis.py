@@ -1,11 +1,21 @@
 from typing import Mapping, Dict, List, Set, Iterable, Generator, Optional
 
+import sys
+from enum import Enum
+
 import synthesis.fol as fol
 from synthesis.smt import smt
+from synthesis.utils.stopwatch import Stopwatch
 
 from .syntax import *
 from .semantics import FOStructureFrame
 
+
+class FormulaResultType(Enum):
+    SOUND_INDEPENDENT = 1 # (definitely) sound and independent from previous axioms
+    DEPENDENT = 2 # (could be) dependent
+    COUNTEREXAMPLE = 3 # (definitely) unsound and found counterexample
+    UNSOUND = 4 # (definitely) unsound but did not find a counterexample
 
 class ModalSynthesizer:
     """
@@ -123,7 +133,6 @@ class ModalSynthesizer:
         modal_axiom: Formula,
         blob_depth: int = 0,
         timeout: int = 0,
-        debug: bool = True,
     ) -> bool:
         """
         Check if the given axiom is complete for a FO characterization goal_theory
@@ -196,23 +205,23 @@ class ModalSynthesizer:
 
             solver.add_assertion(constraint)
 
-            if debug:
-                print(f"is {modal_axiom} complete ({len(skolemized_constants)} base world(s), partition size {len(partition)})", end="", flush=True)
+            return not solver.solve()
 
-            if solver.solve():
-                if debug:
-                    print(" ... ✘")
+            # print(f"is {modal_axiom} complete ({len(skolemized_constants)} base world(s), partition size {len(partition)})",
+            #       end="", flush=True, file=sys.stderr)
 
-                # smt_model = solver.get_model()
-                # print(complement_model.get_from_smt_model(smt_model))
-                # for sc in skolemized_constants:
-                #     print(smt_model[sc])
+            # if solver.solve():
+            #     print(" ... ✘", file=sys.stderr)
 
-                return False
-            else:
-                if debug:
-                    print(" ... ✓")
-                return True
+            #     # smt_model = solver.get_model()
+            #     # print(complement_model.get_from_smt_model(smt_model))
+            #     # for sc in skolemized_constants:
+            #     #     print(smt_model[sc])
+
+            #     return False
+            # else:
+            #     print(" ... ✓", file=sys.stderr)
+            #     return True
 
     def complement_theory(self, theory: fol.Theory) -> fol.Theory:
         assert len(list(theory.get_fixpoint_definitions())) == 0
@@ -261,11 +270,12 @@ class ModalSynthesizer:
         trivial_theory: fol.Theory,
         goal_theory: fol.Theory,
         model_size_bound: int = 4,
-        use_negative_examples: bool = False,
-        debug: bool = True,
+        use_positive_examples: bool = True,
+        use_negative_examples: bool = False, # NOTE: setting use_negative_examples to true may rule out some overapproximating formulas
         check_soundness: bool = False,
-        # NOTE: setting use_negative_examples to true may rule out some overapproximating formulas
-    ) -> Generator[Tuple[Formula, Optional[fol.SymbolicStructure]], None, None]:
+        separate_independence: bool = False, # NOTE: this set to true will disable use_negative_examples
+        stopwatch: Optional[Stopwatch] = None,
+    ) -> Generator[Tuple[Formula, FormulaResultType], None, None]:
         # get all atoms used
         atoms: Set[Atom] = set()
         for template in formula_templates:
@@ -289,80 +299,145 @@ class ModalSynthesizer:
         trivial_model = fol.FiniteFOModelTemplate(trivial_theory, { self.sort_world: model_size_bound })
         goal_model = fol.FiniteFOModelTemplate(goal_theory, { self.sort_world: model_size_bound })
 
+        # These lists persist across synthesis of different templates
         positive_examples: List[fol.SymbolicStructure] = []
         negative_examples: List[fol.SymbolicStructure] = []
         true_formulas: List[Formula] = []
+        excluded_formulas: List[Formula] = [] # formulas to **syntactically** exclude
 
-        with smt.Solver(name="z3") as solver1, \
-            smt.Solver(name="z3") as solver2:
+        with smt.Solver(name="z3") as solver_synthesis, \
+             smt.Solver(name="z3") as solver_independence, \
+             smt.Solver(name="z3") as solver_counterexample:
 
-            solver1.add_assertion(trivial_model.get_constraint())
-            solver2.add_assertion(goal_model.get_constraint())
+            with stopwatch.time("encoding"):
+                if separate_independence:
+                    solver_independence.add_assertion(trivial_model.get_constraint())
+                else:
+                    solver_synthesis.add_assertion(trivial_model.get_constraint())
+
+                solver_counterexample.add_assertion(goal_model.get_constraint())
             
             for formula_template in formula_templates:
                 new_positive_examples = positive_examples
                 new_negative_examples = negative_examples
                 new_true_formulas = true_formulas
+                new_excluded_formulas = excluded_formulas
 
-                with smt.push_solver(solver1):
-                    solver1.add_assertion(formula_template.get_constraint())
+                with smt.push_solver(solver_synthesis):
+                    with stopwatch.time("encoding"):
+                        solver_synthesis.add_assertion(formula_template.get_constraint())
 
-                    # state that the formula should not hold on all frames
-                    solver1.add_assertion(smt.Not(self.interpret_on_fo_structure(formula_template, trivial_model, atom_symbols)))
+                        # state that the formula should not hold on frames where
+                        # true_formulas hold (initially true_formulas = [] so all frames)
+                        if not separate_independence:
+                            solver_synthesis.add_assertion(smt.Not(self.interpret_on_fo_structure(formula_template, trivial_model, atom_symbols)))
 
                     while True:
                         # add all positive examples
-                        for positive_example in new_positive_examples:
-                            # solver1.add_assertion(self.interpret_on_fo_structure(formula_template, positive_example, atom_symbols))
-                            solver1.add_assertion(self.interpret_validity(formula_template, positive_example))
+                        with stopwatch.time("encoding"):
+                            for positive_example in new_positive_examples:
+                                # solver_synthesis.add_assertion(self.interpret_on_fo_structure(formula_template, positive_example, atom_symbols))
+                                solver_synthesis.add_assertion(self.interpret_validity(formula_template, positive_example))
                         new_positive_examples = []
 
                         # add all negative examples
-                        for negative_example in new_negative_examples:
-                            solver1.add_assertion(smt.Not(self.interpret_validity(formula_template, negative_example)))
+                        with stopwatch.time("encoding"):
+                            for negative_example in new_negative_examples:
+                                solver_synthesis.add_assertion(smt.Not(self.interpret_validity(formula_template, negative_example)))
                         new_negative_examples = []
                         
                         # add all true formulas
-                        for formula in new_true_formulas:
-                            solver1.add_assertion(self.interpret_validity(formula, trivial_model))
+                        with stopwatch.time("encoding"):
+                            for formula in new_true_formulas:
+                                if separate_independence:
+                                    solver_independence.add_assertion(self.interpret_validity(formula, trivial_model))
+                                else:
+                                    solver_synthesis.add_assertion(self.interpret_validity(formula, trivial_model))
                         new_true_formulas = []
 
-                        if not solver1.solve():
-                            break
+                        # add all excluded formulas
+                        with stopwatch.time("encoding"):
+                            for formula in new_excluded_formulas:
+                                solver_synthesis.add_assertion(smt.Not(formula_template.equals(formula)))
+                        new_excluded_formulas = []
 
-                        smt_model = solver1.get_model()
+                        with stopwatch.time("synthesis"):
+                            if not solver_synthesis.solve():
+                                break
+
+                        smt_model = solver_synthesis.get_model()
                         candidate = formula_template.get_from_smt_model(smt_model)
-                        candidate = candidate.simplify()
+                        # candidate = candidate.simplify()
 
-                        if debug:
-                            print(candidate, end="", flush=True)
+                        print(candidate, end="", flush=True, file=sys.stderr)
                         
                         # new negative example
-                        if use_negative_examples:
-                            negative_example = trivial_model.get_from_smt_model(smt_model)
-                            negative_examples.append(negative_example)
-                            new_negative_examples.append(negative_example)
+                        if not separate_independence:
+                            if use_negative_examples:
+                                negative_example = trivial_model.get_from_smt_model(smt_model)
+                                negative_examples.append(negative_example)
+                                new_negative_examples.append(negative_example)
 
-                        with smt.push_solver(solver2):
+                        if separate_independence:
+                            # Perform a separate check of independence
+                            # i.e. whether there is a small model where
+                            # all of true_formulas hold but the candidate
+                            # does not hold
+                            with smt.push_solver(solver_independence):
+                                with stopwatch.time("encoding"):
+                                    solver_independence.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, trivial_model, atom_symbols)))
+
+                                with stopwatch.time("independence"):
+                                    solver_result = solver_independence.solve()
+
+                                if solver_result:
+                                    # found witness to independence, continue
+                                    pass
+
+                                else:
+                                    # no witness found
+                                    # NOTE: in this case, the axiom may still be independent
+                                    print(" ... ✘ (no independence witness found)", file=sys.stderr)
+                                    excluded_formulas.append(candidate)
+                                    new_excluded_formulas.append(candidate)
+                                    yield candidate, FormulaResultType.DEPENDENT
+                                    continue
+
+                        with smt.push_solver(solver_counterexample):
                             # try to find a frame in which the candidate does not hold on all worlds
-                            solver2.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, goal_model, atom_symbols)))
+                            with stopwatch.time("encoding"):
+                                solver_counterexample.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, goal_model, atom_symbols)))
 
-                            if solver2.solve():
-                                if debug:
-                                    print(" ... ✘")
-                                # add the positive_example
-                                positive_example = goal_model.get_from_smt_model(solver2.get_model())
-                                positive_examples.append(positive_example)
-                                new_positive_examples.append(positive_example)
+                            with stopwatch.time("counterexample"):
+                                solver_result = solver_counterexample.solve()
 
-                                yield candidate, positive_example
+                            if solver_result:
+                                print(" ... ✘ (counterexample)", file=sys.stderr)
+
+                                if use_positive_examples:
+                                    # add the positive_example
+                                    positive_example = goal_model.get_from_smt_model(solver_counterexample.get_model())
+                                    positive_examples.append(positive_example)
+                                    new_positive_examples.append(positive_example)
+                                else:
+                                    excluded_formulas.append(candidate)
+                                    new_excluded_formulas.append(candidate)
+
+                                yield candidate, FormulaResultType.COUNTEREXAMPLE
                             else:
                                 if check_soundness:
-                                    sound = self.check_validity(goal_theory, candidate)
-                                    assert sound, f"axiom {candidate} is not sound"
+                                    with stopwatch.time("soundness"):
+                                        sound = self.check_validity(goal_theory, candidate)
+                                    
+                                    if not sound:
+                                        print(" ... ✘ (unsound)", file=sys.stderr)
+                                        excluded_formulas.append(candidate)
+                                        new_excluded_formulas.append(candidate)
+                                        yield candidate, FormulaResultType.UNSOUND
+                                        continue
 
-                                if debug:
-                                    print(" ... ✓")
+                                print(" ... ✓", file=sys.stderr)
                                 true_formulas.append(candidate)
                                 new_true_formulas.append(candidate)
-                                yield candidate, None
+
+                                yield candidate, FormulaResultType.SOUND_INDEPENDENT

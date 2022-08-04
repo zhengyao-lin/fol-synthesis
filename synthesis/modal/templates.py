@@ -128,8 +128,8 @@ class ModalFormulaTemplate(Formula):
 
         return smt.Or(
             smt.And(
-                self.node.equals(idx + len(self.atoms) + 1),
-                connective.construct(*self.subformulas[:connective.get_arity()]).equals(value)
+                self.node.equals(idx + len(self.atoms) + 1), # node value matches
+                connective.construct(*self.subformulas[:connective.get_arity()]).equals(value) # subtrees match
             )
             for idx, connective in enumerate(self.connectives)
             if self.depth != 0 or connective.get_arity() == 0

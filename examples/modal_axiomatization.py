@@ -120,7 +120,76 @@ end
 #     modal.Box(modal.Diamond(atom_p)),
 # ),
 
-def find_axioms_for_theory(atoms: Tuple[modal.Atom, ...], goal_theory: Theory) -> None:
+atom_p = modal.Atom("p")
+
+canonical_axioms = {
+    "REFLEXIVE": modal.Implication(
+        modal.Box(atom_p),
+        atom_p,
+    ),
+
+    "TRANSITIVE": modal.Implication(
+        modal.Box(atom_p),
+        modal.Box(modal.Box(atom_p)),
+    ),
+
+    "SYMMETRIC": modal.Implication(
+        atom_p,
+        modal.Box(modal.Diamond(atom_p)),
+    ),
+
+    "EUCLIDEAN": modal.Implication(
+        modal.Diamond(atom_p),
+        modal.Box(modal.Diamond(atom_p)),
+    ),
+
+    "FUNCTIONAL": modal.Implication(
+        modal.Diamond(atom_p),
+        modal.Box(atom_p),
+    ),
+    
+    "SHIFT-REFLEXIVE": modal.Box(
+        modal.Implication(
+            modal.Box(atom_p),
+            atom_p,
+        ),
+    ),
+
+    "DENSE": modal.Implication(
+        modal.Box(modal.Box(atom_p)),
+        modal.Box(atom_p),
+    ),
+
+    "SERIAL": modal.Implication(
+        modal.Box(atom_p),
+        modal.Diamond(atom_p),
+    ),
+
+    "CONVERGENT": modal.Implication(
+        modal.Diamond(modal.Box(atom_p)),
+        modal.Box(modal.Diamond(atom_p)),
+    ),
+
+    # "RST":,
+
+    # "K45":,
+
+    # "KB5":,
+
+    # "D4":,
+
+    # "D5":,
+
+    # "D45":,
+
+    # "DB":,
+
+    # "M4":,
+
+    # "M5":,
+}
+
+def find_axioms_for_theory(atoms: Tuple[modal.Atom, ...], goal_theory: Theory, theory_name: str) -> None:
     true_formulas: List[modal.Formula] = []
     synthesizer = modal.ModalSynthesizer(theory_map["FRAME"].language, "W", "R")
 
@@ -138,6 +207,7 @@ def find_axioms_for_theory(atoms: Tuple[modal.Atom, ...], goal_theory: Theory) -
     )
 
     begin = time.time()
+    first = True
 
     for formula, counterexample in synthesizer.synthesize(
         (
@@ -146,31 +216,89 @@ def find_axioms_for_theory(atoms: Tuple[modal.Atom, ...], goal_theory: Theory) -
         ),
         theory_map["FRAME"],
         goal_theory,
-        debug=False,
+        debug=True,
         check_soundness=True,
         # use_negative_examples=True,
     ):
         if counterexample is None:
             true_formulas.append(formula)
-            print(f"  {formula}")
+
+            if first:
+                # print(f"${modal_formula_to_latex(formula)}", end="", flush=True)
+                first = False
+            else:
+                pass
+                # print(f", {modal_formula_to_latex(formula)}", end="", flush=True)
+
+    # print("$ & ", end="", flush=True)
+
+    # if theory_name in canonical_axioms:
+    #     print(f"${modal_formula_to_latex(canonical_axioms[theory_name])}$ & ", end="", flush=True)
+    # else:
+    #     print("& ", end="", flush=True)
 
     print(f"  - synthesis spent: {time.time() - begin}s")
+    # print(f"{round(time.time() - begin, 2)}\;s & ", end="", flush=True)
     begin = time.time()
 
-    if len(true_formulas) != 0:
-        axiomtization = true_formulas[0]
-        for formula in true_formulas[1:][::-1]:
-            axiomtization = modal.Conjunction(axiomtization, formula)
+    # if len(true_formulas) != 0:
+    #     axiomtization = true_formulas[0]
+    #     for formula in true_formulas[1:][::-1]:
+    #         axiomtization = modal.Conjunction(axiomtization, formula)
 
-        try:
-            synthesizer.check_completeness(goal_theory, axiomtization, blob_depth=0, timeout=300 * 1000, debug=False)
-        except:
-            print(f"  - completeness check failed")
-        else:
-            print(f"  - completeness check spent: {time.time() - begin}s")
+    #     try:
+    #         synthesizer.check_completeness(goal_theory, axiomtization, blob_depth=0, timeout=300 * 1000, debug=False)
+    #     except:
+    #         print(f"  - completeness check failed")
+    #         # print("- \\\\")
+    #         pass
+    #     else:
+    #         print(f"  - completeness check spent: {time.time() - begin}s")
+    #         # print(f"{round(time.time() - begin, 2)}\;s \\\\")
 
 
-for theory_name in theory_map:
-    if theory_name != "FRAME":
-        print(f"# synthesizing for theory {theory_name}")
-        find_axioms_for_theory((modal.Atom("p"),), theory_map[theory_name])
+def fo_formula_to_latex(formula: Formula) -> str:
+    formula_str = str(formula.strip_universal_quantifiers()) \
+        .replace("forall", "\\forall") \
+        .replace("exists", "\\exists") \
+        .replace(":W", "") \
+        .replace("/\\", "\\wedge") \
+        .replace("¬", "\\neg") \
+        .replace("\\/", "\\vee") \
+        .replace("->", "\\rightarrow")
+
+    if formula_str.startswith("("):
+        formula_str = formula_str[1:-1]
+
+    return formula_str
+
+
+def modal_formula_to_latex(formula: modal.Formula) -> str:
+    formula_str = str(formula) \
+        .replace("□", "\\MBox") \
+        .replace("◊", "\\MDiam") \
+        .replace("p", "\\alpha") \
+        .replace("∧", "\\wedge") \
+        .replace("¬", "\\neg") \
+        .replace("∨", "\\vee") \
+        .replace("→", "\\rightarrow") \
+        .replace("⊤", "\\top") \
+        .replace("/\\", "\\wedge") \
+        .replace("\\/", "\\vee") \
+        .replace("⊥", "\\bot") \
+        .replace("->", "\\rightarrow")
+
+    if formula_str.startswith("("):
+        formula_str = formula_str[1:-1]
+
+    return formula_str
+
+
+if __name__ == "__main__":
+    for theory_name in theory_map:
+        if theory_name != "FRAME":
+            print(f"# synthesizing for theory {theory_name}")
+            axiom, = tuple(theory_map[theory_name].get_axioms())
+            # ({theory_name.lower().capitalize()}) 
+            # print(f"${fo_formula_to_latex(axiom.formula)}$ & ", end="", flush=True)
+            find_axioms_for_theory((modal.Atom("p"),), theory_map[theory_name], theory_name)

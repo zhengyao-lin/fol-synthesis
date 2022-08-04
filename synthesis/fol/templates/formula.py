@@ -310,13 +310,13 @@ class QuantifierFreeFormulaTemplate(Formula):
     To synthesize a quantifier free formula in a given language
     """
 
-    def __init__(self, language: Language, free_vars: Tuple[Variable, ...], term_depth: int, formula_depth: int):
+    def __init__(self, language: Language, free_vars: Tuple[Variable, ...], term_depth: int, formula_depth: int, allow_constant: bool = False):
         self.language = language
         self.term_depth = term_depth
         self.formula_depth = formula_depth
 
         self.node = BoundedIntegerVariable(0, 6) # see get_constructor_and_arity(...)
-        self.atom = AtomicFormulaTemplate(language, free_vars, term_depth)
+        self.atom = AtomicFormulaTemplate(language, free_vars, term_depth, allow_constant)
 
         if formula_depth == 0:
             self.subformulas: Tuple[QuantifierFreeFormulaTemplate, ...] = ()

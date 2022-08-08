@@ -1,4 +1,6 @@
-from typing import Tuple, Callable, List, Any
+from typing import Tuple, Callable, List, Any, Generator, Dict
+
+import itertools
 
 from synthesis.template import Template, BoundedIntegerVariable, UnionTemplate
 
@@ -169,3 +171,52 @@ class ModalFormulaTemplate(Formula):
                 )
                 
         return interp
+
+    def enumerate(self) -> Generator[Formula, None, None]:
+        """
+        Maybe merge this with FOLUtils.get_ground_terms_in_language
+        """
+
+        # depth 0: atoms and 0-ary connectives
+        # depth 1: non-0-ary connectives applied to depth 0 terms
+        # depth 2: non-0-ary connectives applied to depth 1 and 0 terms (at least one of the argument has to be depth 1)
+
+        # formula of each depth
+        depth_map: Dict[int, List[Formula]] = {}
+
+        for depth in range(self.depth + 1):
+            if depth == 0:
+                depth_map[0] = list(self.atoms) + [ conn.construct() for conn in self.connectives if conn.get_arity() == 0 ]
+
+                for formula in depth_map[0]:
+                    yield formula
+
+            else:
+                # for each n-ary connective,
+                # iterate through all possible combinations of
+                # the depths of its subformulas
+                # e.g. for a binary connective at depth 2
+                # the subformulas could have depths
+                # (0, 1), (1, 0), (1, 1)
+                # no (0, 0) since that would result in a depth-1 formula
+
+                depth_map[depth] = []
+
+                for conn in self.connectives:
+                    if conn.get_arity() == 0:
+                        continue
+
+                    for subformula_depths in itertools.product(tuple(range(0, depth)), repeat=conn.get_arity()):
+                        # skip depth combinations that would result in a < depth formula
+                        if depth - 1 not in subformula_depths:
+                            continue
+
+                        subformulas = [ depth_map[subformula_depth] for subformula_depth in subformula_depths ]
+
+                        # now iterate through all formulas of the said depth
+                        for subformulas in itertools.product(*(
+                            depth_map[subformula_depth] for subformula_depth in subformula_depths
+                        )):
+                            formula = conn.construct(*subformulas)
+                            depth_map[depth].append(formula)
+                            yield formula

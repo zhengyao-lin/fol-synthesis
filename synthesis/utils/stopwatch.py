@@ -1,4 +1,4 @@
-from typing import Dict, Generator
+from typing import Dict, Generator, Mapping
 
 import time
 from contextlib import contextmanager
@@ -61,4 +61,19 @@ class Stopwatch:
             self.end(name)
 
     def get(self, name: str) -> float:
-        return self.total_elapsed.get(name, 0.0)
+        """
+        Get current elapsed time of a component (the timer could still be running)
+        """
+
+        base = self.total_elapsed.get(name, 0.0)
+
+        if name in self.start_time:
+            return time.time() - self.start_time[name] + base
+
+        return base
+
+    def get_all(self) -> Mapping[str, float]:
+        return {
+            name: self.get(name)
+            for name in sorted(set(self.total_elapsed.keys()).union(set(self.start_time.keys())))
+        }

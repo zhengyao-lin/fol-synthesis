@@ -15,6 +15,7 @@ from pysmt.smtlib.parser import SmtLibParser # type: ignore
 from pysmt.oracles import QuantifierOracle # type: ignore
 
 from pysmt.shortcuts import Function as Apply
+from pysmt.shortcuts import reset_env
 
 import io
 
@@ -28,12 +29,21 @@ SMTFunction = Callable[..., SMTTerm]
 SMTScript = Any
 
 
+_fresh_sort_counter = 0
+
+
+def reset() -> None:
+    """
+    (Re-)initialize global state 
+    """
+    global _fresh_sort_counter
+    _fresh_sort_counter = 0
+    reset_env()
+
+
 def FreshFunction(input_sorts: Tuple[SMTSort, ...], output_sort: SMTSort) -> SMTFunction:
     symbol = FreshSymbol(FunctionType(output_sort, input_sorts))
     return lambda *args: Apply(symbol, args)
-
-
-_fresh_sort_counter = 0
 
 
 def FreshSort() -> SMTSort:

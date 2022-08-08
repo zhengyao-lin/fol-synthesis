@@ -444,6 +444,7 @@ class ModalSynthesizer:
                                     while True:
                                         candidate = next(enumerator)
                                         enumerator_count += 1
+                                        print(f"\r[enumerated {enumerator_count}]", end="")
                                         print(candidate, end="", flush=True, file=self.output)
 
                                         # check whether the candidate holds on positive and negative examples

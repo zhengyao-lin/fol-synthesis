@@ -49,9 +49,14 @@ class FOLUtils:
     @staticmethod
     def get_ground_terms_in_language(language: Language, depth: int, free_vars: Tuple[Term, ...] = ()) -> Mapping[Sort, Collection[Term]]:
         """
-        Depth 1 for constants
+        NOTE: [Deprecated] use TermTemplate.enumerate() instead
+
+        Depth 1 for constants and free vars
         Depth 2 for functions applied to constants
         ...
+
+        Generate terms up to the given depth
+        NOTE: this definition of depth is 1 greater than that in TermTemplate due to a mistake
         """
 
         terms: OrderedDict[Sort, OrderedSet[Term]] = OrderedDict()

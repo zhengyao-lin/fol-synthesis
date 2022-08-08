@@ -211,12 +211,10 @@ class ModalFormulaTemplate(Formula):
                         if depth - 1 not in subformula_depths:
                             continue
 
-                        subformulas = [ depth_map[subformula_depth] for subformula_depth in subformula_depths ]
+                        subformula_lists = [ depth_map[subformula_depth] for subformula_depth in subformula_depths ]
 
                         # now iterate through all formulas of the said depth
-                        for subformulas in itertools.product(*(
-                            depth_map[subformula_depth] for subformula_depth in subformula_depths
-                        )):
+                        for subformulas in itertools.product(*subformula_lists):
                             formula = conn.construct(*subformulas)
                             depth_map[depth].append(formula)
                             yield formula

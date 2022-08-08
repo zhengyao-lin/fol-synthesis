@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple, Mapping, Callable, Optional, Dict, overload
+from typing import Tuple, Mapping, Callable, Optional, Dict, overload, Generator
 from collections import OrderedDict
 
 from synthesis.smt import smt
@@ -164,6 +164,67 @@ class TermTemplate(Term):
                     interp = smt.Ite(self.node.equals(node_value), structure.interpret_function(symbol, *arguments), interp)
 
         return interp
+
+    def enumerate(self) -> Generator[Tuple[Sort, Term], None, None]:
+        """
+        Enumerate all terms in the template
+        """
+
+        terms: OrderedDict[Sort, List[List[Term]]] = OrderedDict()
+
+        def add_term(sort: Sort, depth: int, term: Term) -> None:
+            if sort not in terms:
+                terms[sort] = []
+
+            if len(terms[sort]) <= depth:
+                terms[sort] += [ [] for _ in range(depth - len(terms[sort]) + 1) ]
+
+            terms[sort][depth].append(term)
+
+        def get_terms_at_depth(sort: Sort, depth: int) -> Iterable[Term]:
+            if sort not in terms:
+                return []
+
+            if len(terms[sort]) <= depth:
+                return []
+
+            return terms[sort][depth]
+
+        for depth in range(self.depth + 1):
+            if depth == 0:
+                for free_var in self.free_vars:
+                    add_term(free_var.sort, 0, free_var)
+                    yield free_var.sort, free_var
+
+                for symbol in self.language.function_symbols:
+                    if len(symbol.input_sorts) == 0:
+                        term = Application(symbol, ())
+                        add_term(symbol.output_sort, 0, term)
+                        yield symbol.output_sort, term
+
+            else:
+                for symbol in self.language.function_symbols:
+                    arity = len(symbol.input_sorts)
+
+                    if arity == 0:
+                        continue
+
+                    for subterm_depths in itertools.product(tuple(range(depth)), repeat=arity):
+                        # skip depth combinations that would result in a < depth formula
+                        if depth - 1 not in subterm_depths:
+                            continue
+
+                        # get possible candidates for each argument position
+                        subterm_lists = [
+                            get_terms_at_depth(symbol.input_sorts[i], subterm_depth)
+                            for i, subterm_depth in enumerate(subterm_depths)
+                        ]
+
+                        # now iterate through all formulas of the said depth
+                        for subterms in itertools.product(*subterm_lists):
+                            term = Application(symbol, subterms)
+                            add_term(symbol.output_sort, depth, term)
+                            yield symbol.output_sort, term
 
 
 class AtomicFormulaTemplate(Formula):

@@ -1,609 +1,451 @@
+from __future__ import annotations
+
 from typing import Mapping, Tuple, Dict, Generator
+from dataclasses import dataclass
 
 import z3
+import os
 import sys
+import pickle
 import itertools
-import json
+import multiprocessing
 
 from synthesis import *
 from synthesis.fol.cegis import CEGISynthesizer
 from synthesis.fol.utils import FOLUtils
-
-old_print = print
-print = lambda *args, **kwargs: old_print(*args, file=sys.stderr, flush=True, **kwargs)
-
-z3_ctx = z3.Context()
-
-ka_theory = Parser.parse_theory(r"""
-theory KLEENE-ALGEBRA
-    sort KA
-    relation eq: KA KA [smt("(= #1 #2)")]
-
-    constant zero: KA // empty language
-    constant one: KA // language with an empty word
-    function union: KA KA -> KA
-    function concat: KA KA -> KA
-    function closure: KA -> KA
-end
-""")
-
-ka_sort = ka_theory.language.get_sort("KA")
+from synthesis.utils.stopwatch import Stopwatch
 
 
-def encode_regex_in_z3(term: Term) -> z3.AstRef:
-    if isinstance(term, Variable):
-        # print("v", z3_ctx)
-        return z3.Re(term.name, ctx=z3_ctx)
-
-    elif isinstance(term, Application):
-        # print("c", z3_ctx)
-        arguments = tuple(encode_regex_in_z3(argument) for argument in term.arguments)
-        z3_function = {
-            "zero": lambda: z3.Empty(z3.ReSort(z3.StringSort(ctx=z3_ctx))),
-            "one": lambda: z3.Re("", ctx=z3_ctx),
-            "union": z3.Union,
-            "concat": z3.Concat,
-            "closure": z3.Star,
-        }[term.function_symbol.name]
-
-        return z3_function(*arguments)
-
-    assert False, f"unknown term {term}"
-
-
-def check_regex_equivalence(term1: Term, term2: Term) -> bool:
+@dataclass
+class FinitePartialStructureData:
     """
-    Check if two regex (represented as terms in KLEENE-ALGEBRA, where letters are represented by variables)
-    """
-    solver = z3.Solver(ctx=z3_ctx)
-    # print(encode_regex_in_z3(term1).sort(), encode_regex_in_z3(term2).sort())
-    solver.add(z3.Distinct(encode_regex_in_z3(term1), encode_regex_in_z3(term2)))
-    return solver.check() != z3.sat
- 
+    Definition (partial structure):
+    For simplicity, we define in the unsorted case.
+    Given a language L and a structure S,
+    a partial structure S' of S is an L-structure
+    such that:
+    - There exists a distinguished element u in the
+        domain |S'| of S'. And |S'| \ { u } is a subset
+        of |S|.
+    - Any function f in L is such that
+        * f^{S'}(a_1, ..., a_n) = u if any a_i = u
+        * If f^{S'}(a_1, ..., a_n) = b and a_1, ..., a_n, b
+        are not u, then f^{S}(a_1, ..., a_n) = b
+    - Any relation R in L is such that R^{S'} agrees
+        with R^{S} on |S'| \ { u }
 
-def check_regex_equivalence_batch(term: Term, candidates: Tuple[Term, ...]) -> Optional[int]:
-    """
-    Check if <term> is equivalent to any of the candidates, if so return the index
-    """
-    global z3_ctx
-
-    # z3._main_ctx = z3.Context()
-    z3_ctx = z3.Context()
-    solver = z3.Solver(ctx=z3_ctx)
-    equiv_flags = tuple(z3.FreshBool(ctx=z3_ctx) for _ in candidates)
-    index_var = z3.FreshInt(ctx=z3_ctx)
-
-    # print(index_var, equiv)
-
-    # encoded_term = encode_regex_in_z3(term)
-    # encoded_term = encode_regex_in_z3(term)
-    # print(term, encoded_term)
-
-    # print(z3_ctx)
-    encoded_term = encode_regex_in_z3(term)
-    # print(encoded_term.ctx)
-
-    for i, (equiv_flag, candidate) in enumerate(zip(equiv_flags, candidates)):
-        # TODO: this weird indexing thing is to ensure that z3 actually tells us which one is equivalent
-        # otherwise the booleans in the returned model may not be fully evaluated
-        solver.add(z3.Implies(z3.And(
-            equiv_flag,
-            z3.And(*(z3.Not(other_flags) for other_flags in equiv_flags[:i]), z3_ctx),
-            z3_ctx,
-        ), index_var == i, z3_ctx))
-
-        solver.add(equiv_flag == (encoded_term == encode_regex_in_z3(candidate)))
-
-    solver.add(z3.Or(*equiv_flags, z3_ctx))
-    result = solver.check()
-
-    if result == z3.sat:
-        model = solver.model()
-        # print(model)
-        # print(model[index_var].as_long())
-        # print(tuple(z3.is_true(model[equiv_flag]) for i, equiv_flag in enumerate(equiv_flags)))
-        # # print(model)
-        # # for i, equiv_flag in enumerate(equiv_flags):
-        # #     print(z3.simplify(model[equiv_flag]))
-        # #     if not bool(model[equiv_flag]):
-        # #         return i
-        return model[index_var].as_long()
-    else:
-        assert result == z3.unsat
-        return None
-
-
-def generate_partial_model(language: Language, depth: int) -> Tuple[int, Dict]:
-    """
-    A partial model over an alphabet A is a subset of the free Kleene algebra over A
-    such thta it only includes terms up to a given depth.
-    Out-of-bound mappings throws an exception.
+    A q-free ground formula/term is said to be undefined
+    in S', if any of its subterms evaluates to u in S'.
     """
 
-    constructors = []
+    """
+    A compact and serialized version of a finite partial structure
+    to fascilitate storing the structure on the disk.
 
-    # name -> map of the form { (rep_index, ...) -> rep_index }
-    constructor_evaluations = {}
+    This class builds a finite partial structure S' of any structure S
+    such that |S'| \ {u} is the evaluations (in S) of all terms up to
+    a certain depth.
 
-    # id (int) -> represented term
-    representatives = []
-    alphabet_index = 0
+    NOTE: smt overrides are ignored in the language
+    """
 
-    for function_symbol in language.function_symbols:
-        name = function_symbol.name
+    language: Language
+    term_depth: int
 
-        if len(function_symbol.input_sorts) == 0:
-            constructor_evaluations[name] = { "": len(representatives) }
-            
-            if name == "zero":
-                representatives.append(Parser.parse_term(language, "zero()"))
-            elif name == "one":
-                representatives.append(Parser.parse_term(language, "one()"))
-            else:
-                assert len(name) == 1, "due to the weird encoding we have right now"
-                representatives.append(Variable(name, ka_sort))
-                alphabet_index += 1
-        else:
-            constructors.append(function_symbol)
-            constructor_evaluations[name] = {}
+    index_to_term: Dict[Sort, List[Term]]
+    term_to_index: Dict[Term, int]
 
+    function_mappings: Dict[FunctionSymbol, Mapping[Tuple[int, ...], int]]
+    relation_domains: Dict[RelationSymbol, Tuple[Tuple[int, ...]]]
 
-    # main loop:
-    # for each depth, construct new terms from the existing representatives
-    # each time check with the rest to see if it's equivalent
-    # otherwise add it to representatives
+    @staticmethod
+    def from_structure(language: Language, term_depth: int, base_structure: Structure) -> FinitePartialStructureData:
+        """
+        Extract a FinitePartialStructureData from the base_structure
+        """
 
-    prev_num_representatives = 0
+        data = FinitePartialStructureData(language, term_depth, {}, {}, {}, {})
 
-    for i in range(depth):
-        new_representatives = []
+        data.initialize_domains(base_structure)
 
-        for constructor in constructors:
-            arity = len(constructor.input_sorts)
-            assert arity != 0
+        for function_symbol in language.function_symbols:
+            data.initialize_function_mapping(function_symbol)
 
-            # print(constructor, len(last_new_representatives), len(representatives), len(new_representatives))
+        for relation_symbol in language.relation_symbols:
+            data.initialize_relation_domain(base_structure, relation_symbol)
 
-            for indexed_arguments in itertools.product(enumerate(representatives), repeat=arity):
-                new_term = Application(constructor, tuple(arg for _, arg in indexed_arguments))
-                rep_indices = tuple(index for index, _ in indexed_arguments)
+        return data
 
-                # at least one of them should be a new representative found in the last batch
-                # otherwise we are enumerating an old term
-                for rep_index in rep_indices:
-                    if rep_index >= prev_num_representatives:
-                        break
+    def initialize_domains(self, base_structure: Structure) -> None:
+        # enumerate through and index all terms
+        # the n-th unique element in the base structure
+        # will be indexed (n - 1)
+        term_count = 0
+
+        with smt.Solver(name="z3") as solver:
+            for sort, term in TermTemplate(self.language, (), self.term_depth).enumerate():
+                if sort not in self.index_to_term:
+                    self.index_to_term[sort] = []
+
+                # check if the term is interpreted to the same element of any previous terms
+                # if yes, label the term with the same index;
+                # otherwise, we found a new unique elemtn and will create a new index
+                
+                term_count += 1
+                print(f"\rfound {len(self.index_to_term[sort])}/{term_count} unique terms", end="")
+
+                for i, other in enumerate(self.index_to_term[sort]):
+                    with smt.push_solver(solver):
+                        base_elem1 = term.interpret(base_structure, {})
+                        base_elem2 = other.interpret(base_structure, {})
+
+                        # print(base_elem1.to_smtlib(), base_elem2.to_smtlib())
+
+                        solver.add_assertion(smt.Not(smt.Equals(base_elem1, base_elem2)))
+
+                        if not solver.solve():
+                            # equal elements in the base structure
+                            self.term_to_index[term] = i
+                            break
                 else:
-                    continue
+                    self.term_to_index[term] = len(self.index_to_term[sort])
+                    self.index_to_term[sort].append(term)
 
-                # print(f"checking {len(representatives) + len(new_representatives)} terms")
-                # old_terms = tuple(representatives + list(rep for _, rep in new_representatives))
-                # result_rep_index = check_regex_equivalence_batch(new_term, old_terms)
+            print()
 
-                # if result_rep_index is None:
-                #     print(new_term)
-                #     result_rep_index = len(representatives) + len(new_representatives)
-                #     new_representatives.append((result_rep_index, new_term))
-
-                for index, representative in enumerate(representatives + new_representatives):
-                    if check_regex_equivalence(new_term, representative):
-                        result_rep_index = index
-                        break
-                else:
-                    print(new_term)
-                    result_rep_index = len(representatives) + len(new_representatives)
-                    new_representatives.append(new_term)
-
-                constructor_evaluations[constructor.name][",".join(map(str, rep_indices))] = result_rep_index
-
-        prev_num_representatives = len(representatives)
-        representatives.extend(new_representatives)
-
-        print(f"depth {i}, found {len(new_representatives)} new terms, total {len(representatives)} terms")
-
-    return len(representatives), constructor_evaluations
-
-
-def evaluate_value_map(value_map: Dict[str, int], *args: smt.SMTTerm) -> smt.SMTTerm:
-    result = smt.Int(-1)
-
-    for key, value in value_map.items():
-        int_args = () if key == "" else tuple(map(smt.Int, map(int, key.split(","))))
-        assert len(args) == len(int_args)
-
-        result = smt.Ite(
-            smt.And(smt.Equals(expected, arg) for expected, arg in zip(int_args, args)),
-            smt.Int(value),
-            result,
+    def initialize_function_mapping(self, symbol: FunctionSymbol) -> None:
+        # product of the domains of argument sorts
+        # no need to include the undefined value here
+        domain = tuple(
+            range(len(self.index_to_term.get(sort, [])))
+            for sort in symbol.input_sorts
         )
 
-    return result
+        mapping: OrderedDict[Tuple[int, ...], int] = OrderedDict()
 
-    # for arg in args:
-    #     assert arg.is_int_constant(), f"{arg} should be an Int constant"
-    #     int_args.append(str(arg.constant_value()))
+        for arguments in itertools.product(*domain):
+            # construct the corresponding term
+            new_term = Application(
+                symbol,
+                tuple(self.index_to_term[sort][argument] for argument, sort in zip(arguments, symbol.input_sorts)),
+            )
 
-    # key = ",".join(int_args)
-    # assert key in value_map, f"{key} out of bound of the partial model"
+            if new_term in self.term_to_index:
+                mapping[arguments] = self.term_to_index[new_term]
 
-    # return smt.Int(value_map[key])
+        self.function_mappings[symbol] = mapping
+
+    def initialize_relation_domain(self, base_structure: Structure, symbol: RelationSymbol) -> None:
+        possible_arguments = tuple(
+            range(len(self.index_to_term.get(sort, [])))
+            for sort in symbol.input_sorts
+        )
+
+        domain: List[Tuple[int, ...]] = []
+
+        with smt.Solver(name="z3") as solver:
+            for arguments in itertools.product(*possible_arguments):
+                # convert back to terms
+                terms = tuple(
+                    self.index_to_term[sort][argument]
+                    for argument, sort in zip(arguments, symbol.input_sorts)
+                )
+
+                with smt.push_solver(solver):
+                    solver.add_assertion(smt.Not(RelationApplication(symbol, terms).interpret(base_structure, {})))
+
+                    if not solver.solve():
+                        # the relation is true on the arguments
+                        domain.append(arguments)
+
+        self.relation_domains[symbol] = tuple(domain)
+
+    def save(self, path: str) -> None:
+        """
+        Save the current structure to disk
+        """
+
+        with open(path, "wb") as save_file:
+            # strip SMT hooks for serialization
+            data = (
+                self.language.strip_smt_hook(),
+                self.term_depth,
+                { k.strip_smt_hook(): [ t.strip_smt_hook() for t in v ] for k, v in self.index_to_term.items() },
+                { k.strip_smt_hook(): v for k, v in self.term_to_index.items() },
+                { k.strip_smt_hook(): v for k, v in self.function_mappings.items() },
+                { k.strip_smt_hook(): v for k, v in self.relation_domains.items() },
+            )
+
+            pickle.dump(data, save_file)
+
+    @staticmethod
+    def from_save_file(path: str) -> FinitePartialStructureData:
+        """
+        Load a saved FinitePartialStructureData from disk
+        """
+
+        with open(path, "rb") as save_file:
+            return FinitePartialStructureData(*pickle.load(save_file))
+
+    def get_undefined_value(self, sort: Sort) -> smt.SMTTerm:
+        return smt.Int(len(self.index_to_term.get(sort, [])))
+
+    def get_carriers(self, sort: Sort) -> CarrierSet:
+        return FiniteCarrierSet(
+            smt.INT,
+            tuple(smt.Int(i) for i in range(1 + len(self.index_to_term.get(sort, [])))),
+        )
+
+    def get_function_interpretation(self, symbol: FunctionSymbol) -> smt.SMTFunction:
+        placeholders = tuple(smt.FreshSymbol(smt.INT) for _ in symbol.input_sorts)
+        constraint: smt.SMTTerm = self.get_undefined_value(symbol.output_sort)
+
+        for arguments, result in self.function_mappings[symbol].items():
+            constraint = smt.Ite(
+                smt.And(smt.Equals(var, smt.Int(value)) for var, value in zip(placeholders, arguments)),
+                smt.Int(result),
+                constraint,
+            )
+
+        return lambda *arguments: constraint.substitute(dict(zip(placeholders, arguments)))
+
+    def get_relation_interpretation(self, symbol: RelationSymbol) -> smt.SMTFunction:
+        placeholders = tuple(smt.FreshSymbol(smt.INT) for _ in symbol.input_sorts)
+        constraint: smt.SMTTerm = smt.FALSE()
+
+        for arguments in self.relation_domains[symbol]:
+            constraint = smt.Or(
+                smt.And(smt.Equals(var, smt.Int(value)) for var, value in zip(placeholders, arguments)),
+                constraint,
+            )
+
+        return lambda *arguments: constraint.substitute(dict(zip(placeholders, arguments)))
 
 
-def create_model(language: Language, size: int, maps: Dict[str, Dict[str, int]]) -> Structure:
-    carrier = FiniteCarrierSet(smt.INT, [ smt.Int(i) for i in range(size) ])
-
-    # build function interpretations
-    functions = {}
-
-    for function_name, value_map in maps.items():
-        try:
-            function_symbol = language.get_function_symbol(function_name)
-            functions[function_symbol] = (lambda value_map: lambda *args: evaluate_value_map(value_map, *args))(value_map)
-        except: ...
-
-    return SymbolicStructure(language, { ka_sort: carrier }, functions, {})
-
-
-def constants_to_variables(term: Term) -> Term:
+class FinitePartialStructure(SymbolicStructure):
     """
-    Change constants (other than zero and one) in the term to variables with the same name
+    Create a SymbolicStructure based on FinitePartialStructureData
+    """
+
+    def __init__(self, data: FinitePartialStructureData):
+        self.data = data
+
+        carriers: Dict[Sort, CarrierSet] = {
+            sort: data.get_carriers(sort)
+            for sort in data.language.sorts
+        }
+
+        function_interpretations = {
+            function_symbol: data.get_function_interpretation(function_symbol)
+            for function_symbol in data.language.function_symbols
+        }
+
+        relation_interpretations = {
+            relation_symbol: data.get_relation_interpretation(relation_symbol)
+            for relation_symbol in data.language.relation_symbols
+        }
+
+        super().__init__(data.language, carriers, function_interpretations, relation_interpretations)
+
+
+def replace_constants_with_variables(term: Term, targets: Tuple[FunctionSymbol, ...]) -> Term:
+    """
+    Replaces target constant symbols in the term with variables with the same name
     """
     if isinstance(term, Application):
-        name = term.function_symbol.name
-        if len(term.function_symbol.input_sorts) == 0 and name not in ("zero", "one"):
-            return Variable(name, ka_sort)
+        if term.function_symbol in targets:
+            assert len(term.function_symbol.input_sorts) == 0, \
+                   f"replacing non-constant {term}"
+            return Variable(term.function_symbol.name, term.function_symbol.output_sort)
 
-        return Application(term.function_symbol, tuple(constants_to_variables(arg) for arg in term.arguments))
+        return Application(
+            term.function_symbol,
+            tuple(replace_constants_with_variables(arg, targets) for arg in term.arguments),
+        )
 
     return term
 
 
-# print(encode_regex_in_z3(Parser.parse_term(ka_theory.language, "union(x:KA, y:KA)")))
+def synthesize_equations_from_partial_model(
+    language: Language,
+    primary_sort: Sort, # main sort
+    constant_names: Iterable[str], # symbols in the partial structure representing variables
+    term_depth: int,
+    partial_structure: FinitePartialStructure,
+    initial_axioms: Iterable[Equality] = (),
+    solver_seed: int = 0,
+) -> Tuple[Equality, ...]:
+    constants = tuple(language.get_function_symbol(name) for name in constant_names)
+    new_axioms: List[Equality] = []
 
-# print(check_regex_equivalence(
-#     Parser.parse_term(ka_theory.language, "union(x:KA, y:KA)"),
-#     Parser.parse_term(ka_theory.language, "union(y:KA, x:KA)"),
-# ))
+    with smt.Solver(name="z3", random_seed=solver_seed) as synthesis_solver:
+        left_term_template = TermTemplate(language, (), term_depth, sort=primary_sort)
+        synthesis_solver.add_assertion(left_term_template.get_constraint())
 
-# print(check_regex_equivalence(
-#     Parser.parse_term(ka_theory.language, "union(x:KA, closure(x:KA))"),
-#     Parser.parse_term(ka_theory.language, "concat(x:KA, closure(x:KA))"),
-# ))
+        right_term_template = TermTemplate(language, (), term_depth, sort=primary_sort)
+        synthesis_solver.add_assertion(right_term_template.get_constraint())
 
-# print(check_regex_equivalence(
-#     Parser.parse_term(ka_theory.language, "zero()"),
-#     Parser.parse_term(ka_theory.language, "one()"),
-# ))
-
-# print(check_regex_equivalence_batch(
-#     Parser.parse_term(ka_theory.language, "union(b:KA, a:KA)"),
-#     [
-#         Parser.parse_term(ka_theory.language, "a:KA"),
-#         Parser.parse_term(ka_theory.language, "b:KA"),
-#         Parser.parse_term(ka_theory.language, "zero()"),
-#         Parser.parse_term(ka_theory.language, "one()"),
-#         Parser.parse_term(ka_theory.language, "union(a:KA, b:KA)"),
-#         Parser.parse_term(ka_theory.language, "union(a:KA, one())"),
-#     ]
-# ))
-
-# print(check_regex_equivalence_batch(
-#     Parser.parse_term(ka_theory.language, "union(b:KA, a:KA)"),
-#     [
-#         Parser.parse_term(ka_theory.language, "a:KA"),
-#         Parser.parse_term(ka_theory.language, "b:KA"),
-#         Parser.parse_term(ka_theory.language, "zero()"),
-#         Parser.parse_term(ka_theory.language, "one()"),
-#         Parser.parse_term(ka_theory.language, "union(a:KA, b:KA)"),
-#         Parser.parse_term(ka_theory.language, "union(a:KA, one())"),
-#     ]
-# ))
-
-# expanded_language = ka_theory.language.get_sublanguage(
-#     ("KA",),
-#     ("union", "concat", "closure"), # , "one"),
-#     ("eq",),
-# ).expand_with_functions((
-#     FunctionSymbol((), ka_sort, "a"),
-#     FunctionSymbol((), ka_sort, "b"),
-#     FunctionSymbol((), ka_sort, "c"),
-# ))
-
-# To generate the model, uncomment the following
-# with open("model3.json", "w") as f:
-#     json.dump(generate_partial_model(expanded_language, 4), f)
-# exit()
-
-def remove_dependent_axioms(language: Language, free_vars: Tuple[Variable, ...], axioms: Tuple[Formula, ...], known: Tuple[Formula, ...]) -> Tuple[Formula, ...]:
-    with smt.Solver(name="z3") as solver:
-        model = UninterpretedStructureTemplate(language)
-        solver.add_assertion(model.get_constraint())
-
-        skolem_constants = { free_var: smt.FreshSymbol(model.get_smt_sort(free_var.sort)) for free_var in free_vars }
-
-        # generate instantiation terms with free variables
-        instantiation_terms = tuple(FOLUtils.get_ground_terms_in_language(language, 2, free_vars)[ka_sort])
-        print(f"{len(instantiation_terms)} instantiation terms generated")
-
-        # instantiate each axiom
-        instantiated_axioms: List[Tuple[Formula, List[smt.SMTTerm]]] = []
-        indep_axioms: List[Tuple[Formula, List[smt.SMTTerm]]] = []
-
-        for axiom in axioms + known:
-            axiom_free_vars = tuple(axiom.get_free_variables())
-            
-            instantiated: List[smt.SMTTerm] = []
-
-            for instantiation in itertools.product(instantiation_terms, repeat=len(axiom_free_vars)):
-                instantiated_axiom = axiom.substitute(dict(zip(axiom_free_vars, instantiation)))
-                instantiated.append(instantiated_axiom.interpret(model, skolem_constants))
-
-            print(f"generated {len(instantiated)} instantiations for {axiom}")
-
-            instantiated_axioms.append((axiom, instantiated))
-
-        indep_axioms = instantiated_axioms[len(axioms):]
-        instantiated_axioms = instantiated_axioms[:len(axioms)]
-
-        while len(instantiated_axioms) != 0:
-            first_axiom, first_axiom_instantiations = instantiated_axioms.pop(0)
-
-            with smt.push_solver(solver):
-                print(f"checking independence of {first_axiom} ... ", end="")
-
-                for _, instantiations in instantiated_axioms[1:] + indep_axioms:
-                    for instantiation in instantiations:
-                        solver.add_assertion(instantiation)
-
-                solver.add_assertion(smt.Not(first_axiom.interpret(model, skolem_constants)))
-
-                if solver.solve():
-                    # sat: possibly independent
-                    print("possibly independent")
-                    indep_axioms.append((first_axiom, first_axiom_instantiations))
-                else:
-                    # unsat: dependent
-                    print("dependent")
-                    continue
-
-    return tuple(axiom for axiom, _ in indep_axioms)
-
-    ############################
-
-    # first, *rest = axioms
-
-    # print(f"checking indepdendence of {first}")
-    # sys.stderr.flush()
-
-    # with smt.Solver(name="z3") as solver:
-    #     model = UninterpretedStructureTemplate(language)
-    #     solver.add_assertion(model.get_constraint())
-
-    #     first_axiom_free_vars = tuple(first.get_free_variables())
-    #     skolem_constants = { free_var: smt.FreshSymbol(model.get_smt_sort(free_var.sort)) for free_var in first_axiom_free_vars }
-
-    #     instantiation_terms = tuple(FOLUtils.get_ground_terms_in_language(language, 2, free_vars=first_axiom_free_vars)[ka_sort])
-
-    #     for axiom in tuple(rest) + tuple(known):
-    #         free_vars = tuple(axiom.get_free_variables())
-
-    #         for instantiation in itertools.product(instantiation_terms, repeat=len(free_vars)):
-    #             instantiated_axiom = axiom.substitute(dict(zip(free_vars, instantiation)))
-    #             solver.add_assertion(instantiated_axiom.interpret(model, skolem_constants))
-
-    #     solver.add_assertion(smt.Not(first.interpret(model, skolem_constants)))
-
-    #     if not solver.solve():
-    #         # dependent
-    #         print(f"removing dependent axiom {first}")
-    #         return remove_dependent_axioms(language, rest, known)
-    #     else:
-    #         return remove_dependent_axioms(language, rest, tuple(known) + (first,))        
-
-
-def synthesize_using_partial_model(model_path, language, initial_equalities: List[Formula]):
-    with open(model_path) as f:
-        size, value_map = json.load(f)
-        canonical_partial_model = create_model(language, size, value_map)
-
-    learned_equalities = initial_equalities
-
-    with smt.Solver(name="z3") as solver:
-        precomputed_instantiation_terms = tuple(FOLUtils.get_ground_terms_in_language(language, 2)[ka_sort])
-        # for term in precomputed_instantiation_terms:
-        #     print(term, end=" ")
-
-        equality_templates = (
-            Equality(TermTemplate(language, (), 1, ka_sort), TermTemplate(language, (), 1, ka_sort)),
-            Equality(TermTemplate(language, (), 2, ka_sort), TermTemplate(language, (), 2, ka_sort)),
-        )
-
+        # trivial_model is used for independence constraints
         trivial_model = UninterpretedStructureTemplate(language)
-        solver.add_assertion(trivial_model.get_constraint())
+        synthesis_solver.add_assertion(trivial_model.get_constraint())
 
-        def add_equality_to_trivial_model(equality):
-            # assert all instantiations to trivial_model
-            # so that we can avoid duplicate equalities
-            free_vars = tuple(equality.get_free_variables())
+        # the axiom should not be trivially true
+        synthesis_solver.add_assertion(smt.Not(smt.Equals(
+            left_term_template.interpret(trivial_model, {}),
+            right_term_template.interpret(trivial_model, {}),
+        )))
 
-            # print("instance of", equality)
+        # precompute all terms needed for instantiation
+        # instantiation_terms = tuple(
+        #     term for _, term in
+        #     TermTemplate(language, (), instantiation_depth, sort=primary_sort).enumerate()
+        # )
+        instantiation_terms = tuple(partial_structure.data.index_to_term[primary_sort])
 
-            for instantiation in itertools.product(precomputed_instantiation_terms, repeat=len(free_vars)):
-                instantiated_equality = equality.substitute(dict(zip(free_vars, instantiation)))
-                # print(instantiated_equality)
-                solver.add_assertion(instantiated_equality.interpret(trivial_model, {}))
+        # term_template is true on partial_structure (and not undefined)
+        left_term_template_interp = left_term_template.interpret(partial_structure, {})
+        right_term_template_interp = right_term_template.interpret(partial_structure, {})
+        synthesis_solver.add_assertion(smt.And(
+            # the left term is not undefined
+            smt.Not(smt.Equals(left_term_template_interp, partial_structure.data.get_undefined_value(primary_sort))),
+            # no need to say that the right term is not undefined
 
-        for equality_template in equality_templates:
-            with smt.push_solver(solver):
-                solver.add_assertion(equality_template.get_constraint())
-                solver.add_assertion(equality_template.interpret(canonical_partial_model, {}))
-                solver.add_assertion(smt.Not(equality_template.interpret(trivial_model, {})))
+            # and they are equal
+            smt.Equals(right_term_template_interp, left_term_template_interp),
+        ))
 
-                for equality in learned_equalities:
-                    add_equality_to_trivial_model(equality)
+        axioms_to_add: List[Equality] = list(initial_axioms)
 
-                while True:
-                    if not solver.solve():
-                        print("cannot find more equalities")
-                        break
-                    else:
-                        model = solver.get_model()
-                        candidate = equality_template.get_from_smt_model(model)
+        print(f"# start synthesis for depth {term_depth}, instantiation size {len(instantiation_terms)}")
 
-                        # convert constants to variables, by the theorem that
-                        # the validity of KA equality is equivalent to the validity
-                        # of the gound equality with variables replaced with constants
-                        candidate = Equality(constants_to_variables(candidate.left), constants_to_variables(candidate.right))
-                        print(candidate)
+        while True:
+            # instantiate new and existing axioms on all possible terms in term_template
+            # which adds constraints for independence
+            for axiom in axioms_to_add:
+                free_vars = tuple(axiom.get_free_variables())
 
-                        learned_equalities.append(candidate)
-                        add_equality_to_trivial_model(candidate)
+                # print(f"adding {axiom} for independence")
 
-    return learned_equalities
+                # NOTE: here we are assuming an unsorted scenario
+                for instantiation in itertools.product(instantiation_terms, repeat=len(free_vars)):
+                    instantiated_axiom = axiom.substitute(dict(zip(free_vars, instantiation)))
+                    synthesis_solver.add_assertion(instantiated_axiom.interpret(trivial_model, {}))
+            axioms_to_add = []
 
-def check_implication(language: Language, free_vars: Tuple[Variable, ...], theory: Tuple[Formula, ...], goals: Tuple[Formula, ...]) -> None:
-    """
-    Check if all goals are implied by the theory
-    """
+            if not synthesis_solver.solve():
+                # no more equalities can be found
+                break
 
-    with smt.Solver(name="z3") as solver:
-        model = UninterpretedStructureTemplate(language)
-        solver.add_assertion(model.get_constraint())
+            model = synthesis_solver.get_model()
+            left_term = left_term_template.get_from_smt_model(model)
+            right_term = right_term_template.get_from_smt_model(model)
 
-        skolem_constants = { free_var: smt.FreshSymbol(model.get_smt_sort(free_var.sort)) for free_var in free_vars }
+            # replace constant symbols representing variables in the partial model
+            left_term = replace_constants_with_variables(left_term, constants)
+            right_term = replace_constants_with_variables(right_term, constants)
+            axiom = Equality(left_term, right_term)
 
-        # generate instantiation terms with free variables
-        instantiation_terms = tuple(FOLUtils.get_ground_terms_in_language(language, 2, free_vars)[ka_sort])
-        print(f"{len(instantiation_terms)} instantiation terms generated")
+            print(f"found axiom {axiom}")
 
-        instantiation_terms_interpreted = tuple(term.interpret(model, skolem_constants) for term in instantiation_terms)
+            axioms_to_add.append(axiom)
+            new_axioms.append(axiom)
 
-        # instantiate each axiom
-        instantiated_theory: List[Tuple[Formula, List[smt.SMTTerm]]] = []
-
-        for axiom in theory:
-            axiom_free_vars = tuple(axiom.get_free_variables())
-            
-            instantiated: List[smt.SMTTerm] = []
-
-            for instantiation in itertools.product(instantiation_terms_interpreted, repeat=len(axiom_free_vars)):
-                instantiated.append(axiom.interpret(model, dict(zip(axiom_free_vars, instantiation))))
-
-            print(f"generated {len(instantiated)} instantiations for {axiom}")
-
-            instantiated_theory.append((axiom, instantiated))
-
-        for goal in goals:
-            with smt.push_solver(solver):
-                print(f"checking {goal} ... ", end="")
-
-                for _, instantiations in instantiated_theory:
-                    for instantiation in instantiations:
-                        solver.add_assertion(instantiation)
-
-                solver.add_assertion(smt.Not(goal.interpret(model, skolem_constants)))
-
-                if solver.solve():
-                    print("unknown")
-                else:
-                    print("valid")
+    return new_axioms
 
 
-def enumerate_template(template: Template[Formula]) -> Generator[Formula, None, None]:
-    with smt.Solver(name="z3") as solver:
-        solver.add_assertion(template.get_constraint())
+# def check_fo_implication(
+#     instantiation_terms: Iterable[Term],
+#     axioms: Iterable[Equality],
+#     goal: Equality,
+#     solver_seed: int = 0,
+# ) -> Tuple[Equality, ...]:
+#     """
+#     Check if
+#     """
 
-        while solver.solve():
-            val = template.get_from_smt_model(solver.get_model())
-            yield val
-            solver.add_assertion(smt.Not(template.equals(val)))
 
+
+def main():
+    ka_theory = Parser.parse_theory(r"""
+    theory KLEENE-ALGEBRA
+        sort KA
+        // relation eq: KA KA [smt("(= #1 #2)")]
+
+        constant zero: KA
+        constant one: KA
+        function union: KA KA -> KA
+        function concat: KA KA -> KA
+        function closure: KA -> KA
+    end
+    """)
+
+
+    # save language as above but binds every function to the canonical model
+    re_model = FOModelTemplate(Parser.parse_theory(r"""
+    theory REGULAR-LANGUAGE
+        sort KA [smt("RegLan")]
+
+        constant a: KA [smt("(str.to_re \"a\")")]
+        constant b: KA [smt("(str.to_re \"b\")")]
+        constant c: KA [smt("(str.to_re \"c\")")]
+
+        // constant zero: KA [smt("(re.none)")] // empty language
+        // constant one: KA [smt("(str.to_re \"\")")] // singleton language with an empty string
+        function union: KA KA -> KA [smt("(re.union #1 #2)")]
+        function concat: KA KA -> KA [smt("(re.++ #1 #2)")]
+        function closure: KA -> KA [smt("(re.* #1)")]
+    end
+    """))
+
+    ka_sort = ka_theory.language.get_sort("KA")
+
+    # "c2d2" = partial-kleene-constant-2-depth-2-full.pickle
+    # "c3d2" = partial-kleene-constant-3-depth-2-reduced.pickle
+
+    c2d2_data = FinitePartialStructureData.from_save_file("results/partial-kleene-constant-2-depth-2-full.pickle")
+    c2d2 = FinitePartialStructure(c2d2_data)
+
+    c3d2_data = FinitePartialStructureData.from_save_file("results/partial-kleene-constant-3-depth-2-reduced.pickle")
+    c3d2 = FinitePartialStructure(c3d2_data)
+
+    axioms: List[Equality] = []
+
+    # term depth 1, using c2d2
+    axioms.extend(synthesize_equations_from_partial_model(
+        c2d2.language,
+        ka_sort,
+        ("a", "b"),
+        1,
+        c2d2,
+        initial_axioms=axioms,
+    ))
+
+    # # term depth 2, using c2d2
+    # axioms.extend(synthesize_equations_from_partial_model(
+    #     c2d2.language,
+    #     ka_sort,
+    #     ("a", "b"),
+    #     2,
+    #     c2d2,
+    #     initial_axioms=axioms,
+    # ))
+
+    # # term depth 2, using c3d2
+    # axioms.extend(synthesize_equations_from_partial_model(
+    #     c2d2.language,
+    #     ka_sort,
+    #     ("a", "b", "c"),
+    #     2,
+    #     c2d2,
+    #     initial_axioms=axioms,
+    # ))
+
+# term1 = Parser.parse_term(re_model.language, "concat(a(), closure(concat(a(), one())))")
+# term2 = Parser.parse_term(re_model.language, "concat(closure(union(union(a(), a()), zero())), b())")
+
+# with smt.Solver(name="z3") as solver:
+#     solver.add_assertion(smt.Equals(term1.interpret(re_model, {}), term2.interpret(re_model, {})))
+#     print(solver.solve())
 
 if __name__ == "__main__":
-    c2_d2_language = ka_theory.language.get_sublanguage(
-        ("KA",),
-        ("union", "concat", "closure", "one", "zero"),
-        ("eq",),
-    ).expand_with_functions((
-        FunctionSymbol((), ka_sort, "a"),
-        FunctionSymbol((), ka_sort, "b"),
-    ))
-
-    c3_d2_language = ka_theory.language.get_sublanguage(
-        ("KA",),
-        ("union", "concat", "closure"),
-        ("eq",),
-    ).expand_with_functions((
-        FunctionSymbol((), ka_sort, "a"),
-        FunctionSymbol((), ka_sort, "b"),
-        FunctionSymbol((), ka_sort, "c"),
-    ))
-
-    full_language = ka_theory.language.get_sublanguage(
-        ("KA",),
-        ("union", "concat", "closure", "zero", "one"),
-        ("eq",),
-    )
-
-    all_free_vars = (Variable("a", ka_sort), Variable("b", ka_sort), Variable("c", ka_sort))
-
-    for equality in enumerate_template(Equality(TermTemplate(c2_d2_language, (), 2, ka_sort), TermTemplate(c2_d2_language, (), 2, ka_sort))):
-        pass # print(equality)
-
-    exit()
-
-    # c2_d2_results = synthesize_using_partial_model("model-c2-d2.json", c2_d2_language, [])
-    # c3_d2_results = synthesize_using_partial_model("model-c3-d2.json", c3_d2_language, [])
-
-    # print("all results (including dependent ones):")
-    # print(repr(c2_d2_results))
-    # print(repr(c3_d2_results))
-
-    c2_d2_results = [Equality(left=Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()),)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=())))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=())))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=())))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))))]
-    c3_d2_results = [Equality(left=Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))]
-
-    # print(len(c2_d2_results), len(c3_d2_results))
-
-    # independent_equalities = remove_dependent_axioms(full_language, all_free_vars, c2_d2_results + c3_d2_results)
-    # print("independent result(s):")
-    # print(repr(independent_equalities))
-    # for equality in independent_equalities:
-    #     print(f"  {equality}")
-
-    # results of the above independent_equalities
-    # results = (Equality(left=Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=())))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))),))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='one', smt_hook=None), arguments=()), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='zero', smt_hook=None), arguments=()), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)),)), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None),), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='closure', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)),)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))), Equality(left=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))))), right=Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='concat', smt_hook=None), arguments=(Application(function_symbol=FunctionSymbol(input_sorts=(Sort(name='KA', smt_hook=None, smt_hook_constraint=None), Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), output_sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None), name='union', smt_hook=None), arguments=(Variable(name='a', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)), Variable(name='c', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None)))), Variable(name='b', sort=Sort(name='KA', smt_hook=None, smt_hook_constraint=None))))))
-
-    # for equality in results:
-    #     print(equality)
-
-    # remove_dependent_axioms(full_language, all_free_vars, c2_d2_results + c3_d2_results)
-
-    # goal = Parser.parse_formula(full_language, "concat(a:KA, one()) = a:KA")
-    # print(check_implication(full_language, all_free_vars, results, goal))
-
-    # goal = Parser.parse_formula(full_language, "union(one(), union(concat(a:KA, closure(a:KA)), closure(a:KA))) = closure(a:KA)")
-    # print(check_implication(full_language, all_free_vars, results, goal))
-
-    # kozen_axioms = tuple(map(lambda src: Parser.parse_formula(full_language, src), (
-    #     "union(a:KA, union(b:KA, c:KA)) = union(union(a:KA, b:KA), c:KA)",
-    #     "union(a:KA, b:KA) = union(b:KA, a:KA)",
-    #     "union(a:KA, zero()) = a:KA",
-    #     "union(a:KA, a:KA) = a:KA",
-    #     "concat(a:KA, concat(b:KA, c:KA)) = concat(concat(a:KA, b:KA), c:KA)",
-    #     "concat(one(), a:KA) = a:KA",
-    #     "concat(a:KA, one()) = a:KA",
-    #     "concat(a:KA, union(b:KA, c:KA)) = union(concat(a:KA, b:KA), concat(a:KA, c:KA))",
-    #     "concat(union(a:KA, b:KA), c:KA) = union(concat(a:KA, c:KA), concat(b:KA, c:KA))",
-    #     "concat(zero(), a:KA) = zero()",
-    #     "concat(a:KA, zero()) = zero()",
-    #     "union(one(), union(concat(a:KA, closure(a:KA)), closure(a:KA))) = closure(a:KA)",
-    #     "union(one(), union(concat(closure(a:KA), a:KA), closure(a:KA))) = closure(a:KA)",
-    #     "union(concat(a:KA, b:KA), b:KA) = b:KA -> union(concat(closure(a:KA), b:KA), b:KA) = b:KA",
-    #     "union(concat(b:KA, a:KA), b:KA) = b:KA -> union(concat(b:KA, closure(a:KA)), b:KA) = b:KA",
-    # )))
-
-    # our results => Kozen's axioms
-    # check_implication(full_language, all_free_vars, results, kozen_axioms)
-
-    # Kozen's axioms => our results
-    # check_implication(full_language, all_free_vars, kozen_axioms, results)
+    main()

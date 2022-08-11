@@ -271,7 +271,7 @@ def find_axioms_for_theory(
         sort_world="W",
         transition_symbol="R",
         solver_seed=args.seed,
-        output=open(os.devnull, "w"),
+        output=sys.stderr if args.debug else open(os.devnull, "w"),
     )
 
     connectives = (
@@ -316,6 +316,9 @@ def find_axioms_for_theory(
             result=formula_type,
             time=stopwatch.get("synthesis-total"),
         ))
+
+        if formula_type == modal.FormulaResultType.GOOD:
+            print(formula)
 
     stopwatch.end("synthesis-total")
 
@@ -434,7 +437,7 @@ def synthesis_job(args: argparse.Namespace, queue: multiprocessing.Queue, theory
     # def job() -> None:
     smt.reset()
     # print()
-    # print(f"# synthesizing for theory {theory_name}")
+    print(f"synthesizing for theory {theory_name}")
     result = find_axioms_for_theory(
         args,
         (modal.Atom("p"),),
@@ -487,12 +490,19 @@ def command_synthesize(args: argparse.Namespace) -> None:
     # start a process to write results to the save file
     multiprocessing.Process(target=write_result_job, args=(args, result_queue), daemon=True).start()
 
+    if args.logics is not None:
+        for logic in args.logics:
+            assert logic in theory_map, f"theory {logic} is not found"
+
     with multiprocessing.Pool(processes=args.jobs) as pool:
         pool.starmap(
             synthesis_job,
             [
                 (args, result_queue, name)
-                for name in theory_map if name not in skip_theories and name != "FRAME"
+                for name in theory_map
+                if name not in skip_theories and
+                   name != "FRAME" and
+                   (args.logics is None or name in args.logics)
             ],
         )
 
@@ -724,7 +734,9 @@ def main() -> None:
 
     # Run synthesis
     parser_synthesize = subparsers.add_parser("synthesize", help="synthesize modal logic axioms")
+    parser_synthesize.add_argument("logics", nargs="*", help="synthesize for only specific logics")
     parser_synthesize.add_argument("--continue", dest="cont", action="store_true", default=False, help="skip re-synthesizing existing results in the save file")
+    parser_synthesize.add_argument("--debug", action="store_true", default=False, help="enable debug output from the synthesizer")
     parser_synthesize.add_argument("-j", "--jobs", dest="jobs", type=int, default=1, help="number of parallel processes to perform synthesis")
     parser_synthesize.add_argument("-s", "--seed", dest="seed", type=int, default=0, help="random seed given to the SMT solver")
     parser_synthesize.add_argument("--save", type=str, default=None, help="save results to a file")

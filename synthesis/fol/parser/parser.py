@@ -1,5 +1,6 @@
 from typing import Any, List
 
+import ast
 from lark import Lark, Transformer, Token, Tree
 
 from .ast import *
@@ -12,8 +13,7 @@ class ASTTransformer(Transformer[BaseAST]):
 
     def string(self, args: List[Token]) -> str:
         value = str(args[0])
-        assert value.startswith("\"") and value.endswith("\"")
-        return value[1:-1]
+        return ast.literal_eval(value)
 
     def natural(self, args: List[Token]) -> int:
         value = str(args[0])

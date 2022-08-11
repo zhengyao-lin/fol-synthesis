@@ -3,14 +3,17 @@ from typing import Any, Callable, Tuple, Generator
 from contextlib import contextmanager
 
 from pysmt.shortcuts import ( # type: ignore
-    FreshSymbol,
+    FreshSymbol, Symbol,
     TRUE, FALSE, And, Or, Not, Implies, Iff, ForAll, Exists, Ite, Equals,
     GT, GE, LT, LE,
     BV, Int, Bool,
     get_model, Solver,
     Array, Select,
+    StrToRe,
+    ReNone, ReConcat, ReUnion, ReClosure,
+    get_free_variables,
 )
-from pysmt.typing import BOOL, INT, BVType, FunctionType, ArrayType, Type # type: ignore
+from pysmt.typing import BOOL, INT, STRING, REGLAN, BVType, FunctionType, ArrayType, Type # type: ignore
 from pysmt.smtlib.parser import SmtLibParser # type: ignore
 from pysmt.oracles import QuantifierOracle # type: ignore
 

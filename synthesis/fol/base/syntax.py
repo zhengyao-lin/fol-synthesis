@@ -37,6 +37,9 @@ class Term(BaseAST, Template["Term"], Interpretable["Term"], ABC):
     def get_sort(self) -> Sort:
         raise NotImplementedError()
 
+    def strip_smt_hook(self) -> Language:
+        raise NotImplementedError()
+
     def __lt__(self, other: Any) -> bool:
         # TODO
         return str(self) <= str(other)
@@ -74,6 +77,9 @@ class Variable(Term):
     name: str
     sort: Sort
 
+    def strip_smt_hook(self) -> Variable:
+        return Variable(self.name, self.sort.strip_smt_hook())
+
     def __str__(self) -> str:
         return f"{self.name}:{self.sort}"
 
@@ -107,6 +113,12 @@ class Variable(Term):
 class Application(Term):
     function_symbol: FunctionSymbol
     arguments: Tuple[Term, ...]
+
+    def strip_smt_hook(self) -> Application:
+        return Application(
+            self.function_symbol.strip_smt_hook(),
+            tuple(argument.strip_smt_hook() for argument in self.arguments),
+        )
 
     def __str__(self) -> str:
         argument_string = ", ".join((str(arg) for arg in self.arguments))

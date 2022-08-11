@@ -19,6 +19,9 @@ class Sort(BaseAST):
     smt_hook: Optional[smt.SMTSort] = None
     smt_hook_constraint: Optional[smt.SMTFunction] = None # a constraint on the smt sort
 
+    def strip_smt_hook(self) -> Sort:
+        return Sort(self.name)
+
     def __str__(self) -> str:
         return self.name
 
@@ -35,6 +38,9 @@ class FunctionSymbol(BaseAST):
     output_sort: Sort
     name: str
     smt_hook: Optional[smt.SMTFunction] = None # if set, the function is interpreted as an SMT function
+
+    def strip_smt_hook(self) -> FunctionSymbol:
+        return FunctionSymbol(self.input_sorts, self.output_sort, self.name)
 
     def __str__(self) -> str:
         if len(self.input_sorts) == 0:
@@ -58,6 +64,9 @@ class RelationSymbol(BaseAST):
     input_sorts: Tuple[Sort, ...]
     name: str
     smt_hook: Optional[smt.SMTFunction] = None # if set, the function is interpreted as an SMT function
+
+    def strip_smt_hook(self) -> RelationSymbol:
+        return RelationSymbol(self.input_sorts, self.name)
 
     def __str__(self) -> str:
         if len(self.input_sorts) == 0:
@@ -83,6 +92,13 @@ class Language:
     sorts: Tuple[Sort, ...]
     function_symbols: Tuple[FunctionSymbol, ...]
     relation_symbols: Tuple[RelationSymbol, ...]
+
+    def strip_smt_hook(self) -> Language:
+        return Language(
+            tuple(sort.strip_smt_hook() for sort in self.sorts),
+            tuple(function_symbol.strip_smt_hook() for function_symbol in self.function_symbols),
+            tuple(relation_symbol.strip_smt_hook() for relation_symbol in self.relation_symbols),
+        )
 
     def __str__(self) -> str:
         sort_string = ", ".join(map(str, self.sorts))

@@ -1,0 +1,41 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-1
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-equational-to-our-1
+% SZS output start Proof for kozens-equational-to-our-1
+fof(f41,plain,(
+  $false),
+  inference(subsumption_resolution,[],[f27,f28])).
+fof(f28,plain,(
+  ( ! [X0] : (zero = concat(X0,zero)) )),
+  inference(cnf_transformation,[],[f17])).
+fof(f17,plain,(
+  ! [X0] : zero = concat(X0,zero)),
+  inference(rectify,[],[f11])).
+fof(f11,axiom,(
+  ! [X2] : zero = concat(X2,zero)),
+  file('kozens-equational-to-our-1.p',axiom_10)).
+fof(f27,plain,(
+  zero != concat(sK0,zero)),
+  inference(cnf_transformation,[],[f26])).
+fof(f26,plain,(
+  ? [X0] : zero != concat(X0,zero)),
+  inference(ennf_transformation,[],[f16])).
+fof(f16,plain,(
+  ~! [X0] : zero = concat(X0,zero)),
+  inference(rectify,[],[f15])).
+fof(f15,negated_conjecture,(
+  ~! [X1] : zero = concat(X1,zero)),
+  inference(negated_conjecture,[],[f14])).
+fof(f14,conjecture,(
+  ! [X1] : zero = concat(X1,zero)),
+  file('kozens-equational-to-our-1.p',goal)).
+% SZS output end Proof for kozens-equational-to-our-1
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5373
+% Time elapsed: 0.002 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.089 s

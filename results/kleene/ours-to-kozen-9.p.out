@@ -1,0 +1,38 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on ours-to-kozen-9
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for ours-to-kozen-9
+% SZS output start Proof for ours-to-kozen-9
+fof(f42,plain,(
+  $false),
+  inference(subsumption_resolution,[],[f26,f29])).
+fof(f29,plain,(
+  ( ! [X0] : (zero = concat(zero,X0)) )),
+  inference(cnf_transformation,[],[f1])).
+fof(f1,axiom,(
+  ! [X0] : zero = concat(zero,X0)),
+  file('ours-to-kozen-9.p',axiom_0)).
+fof(f26,plain,(
+  zero != concat(zero,sK0)),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ? [X0] : zero != concat(zero,X0)),
+  inference(ennf_transformation,[],[f18])).
+fof(f18,plain,(
+  ~! [X0] : zero = concat(zero,X0)),
+  inference(rectify,[],[f17])).
+fof(f17,negated_conjecture,(
+  ~! [X1] : zero = concat(zero,X1)),
+  inference(negated_conjecture,[],[f16])).
+fof(f16,conjecture,(
+  ! [X1] : zero = concat(zero,X1)),
+  file('ours-to-kozen-9.p',goal)).
+% SZS output end Proof for ours-to-kozen-9
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5373
+% Time elapsed: 0.002 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.103 s

@@ -1,0 +1,41 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-9
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-equational-to-our-9
+% SZS output start Proof for kozens-equational-to-our-9
+fof(f41,plain,(
+  $false),
+  inference(subsumption_resolution,[],[f27,f33])).
+fof(f33,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f22])).
+fof(f22,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f4])).
+fof(f4,axiom,(
+  ! [X2] : union(X2,X2) = X2),
+  file('kozens-equational-to-our-9.p',axiom_3)).
+fof(f27,plain,(
+  sK0 != union(sK0,sK0)),
+  inference(cnf_transformation,[],[f26])).
+fof(f26,plain,(
+  ? [X0] : union(X0,X0) != X0),
+  inference(ennf_transformation,[],[f16])).
+fof(f16,plain,(
+  ~! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f15])).
+fof(f15,negated_conjecture,(
+  ~! [X2] : union(X2,X2) = X2),
+  inference(negated_conjecture,[],[f14])).
+fof(f14,conjecture,(
+  ! [X2] : union(X2,X2) = X2),
+  file('kozens-equational-to-our-9.p',goal)).
+% SZS output end Proof for kozens-equational-to-our-9
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5373
+% Time elapsed: 0.001 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.049 s

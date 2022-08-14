@@ -1,0 +1,371 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-to-our-2
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-to-our-2
+% SZS output start Proof for kozens-to-our-2
+fof(f4844,plain,(
+  $false),
+  inference(avatar_sat_refutation,[],[f51,f55,f63,f67,f71,f75,f79,f87,f99,f107,f142,f146,f376,f483,f487,f789,f3206,f3301,f4348,f4532,f4716,f4835])).
+fof(f4835,plain,(
+  spl0_1 | ~spl0_6 | ~spl0_30 | ~spl0_57 | ~spl0_71),
+  inference(avatar_contradiction_clause,[],[f4834])).
+fof(f4834,plain,(
+  $false | (spl0_1 | ~spl0_6 | ~spl0_30 | ~spl0_57 | ~spl0_71)),
+  inference(subsumption_resolution,[],[f4833,f50])).
+fof(f50,plain,(
+  one != closure(zero) | spl0_1),
+  inference(avatar_component_clause,[],[f49])).
+fof(f49,plain,(
+  spl0_1 <=> one = closure(zero)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_1])])).
+fof(f4833,plain,(
+  one = closure(zero) | (~spl0_6 | ~spl0_30 | ~spl0_57 | ~spl0_71)),
+  inference(forward_demodulation,[],[f4832,f70])).
+fof(f70,plain,(
+  ( ! [X0] : (union(X0,zero) = X0) ) | ~spl0_6),
+  inference(avatar_component_clause,[],[f69])).
+fof(f69,plain,(
+  spl0_6 <=> ! [X0] : union(X0,zero) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_6])])).
+fof(f4832,plain,(
+  closure(zero) = union(one,zero) | (~spl0_30 | ~spl0_57 | ~spl0_71)),
+  inference(forward_demodulation,[],[f4738,f3300])).
+fof(f3300,plain,(
+  ( ! [X11] : (closure(X11) = union(one,closure(X11))) ) | ~spl0_57),
+  inference(avatar_component_clause,[],[f3299])).
+fof(f3299,plain,(
+  spl0_57 <=> ! [X11] : closure(X11) = union(one,closure(X11))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_57])])).
+fof(f4738,plain,(
+  union(one,zero) = union(one,closure(zero)) | (~spl0_30 | ~spl0_71)),
+  inference(superposition,[],[f788,f4715])).
+fof(f4715,plain,(
+  one = union(closure(zero),one) | ~spl0_71),
+  inference(avatar_component_clause,[],[f4714])).
+fof(f4714,plain,(
+  spl0_71 <=> one = union(closure(zero),one)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_71])])).
+fof(f788,plain,(
+  ( ! [X26,X25] : (union(X26,X25) = union(union(X25,X26),zero)) ) | ~spl0_30),
+  inference(avatar_component_clause,[],[f787])).
+fof(f787,plain,(
+  spl0_30 <=> ! [X25,X26] : union(X26,X25) = union(union(X25,X26),zero)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_30])])).
+fof(f4716,plain,(
+  spl0_71 | ~spl0_5 | ~spl0_70),
+  inference(avatar_split_clause,[],[f4535,f4530,f65,f4714])).
+fof(f65,plain,(
+  spl0_5 <=> ! [X0] : concat(one,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_5])])).
+fof(f4530,plain,(
+  spl0_70 <=> ! [X0] : union(concat(X0,closure(zero)),X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_70])])).
+fof(f4535,plain,(
+  one = union(closure(zero),one) | (~spl0_5 | ~spl0_70)),
+  inference(superposition,[],[f4531,f66])).
+fof(f66,plain,(
+  ( ! [X0] : (concat(one,X0) = X0) ) | ~spl0_5),
+  inference(avatar_component_clause,[],[f65])).
+fof(f4531,plain,(
+  ( ! [X0] : (union(concat(X0,closure(zero)),X0) = X0) ) | ~spl0_70),
+  inference(avatar_component_clause,[],[f4530])).
+fof(f4532,plain,(
+  spl0_70 | ~spl0_7 | ~spl0_68),
+  inference(avatar_split_clause,[],[f4478,f4346,f73,f4530])).
+fof(f73,plain,(
+  spl0_7 <=> ! [X0] : union(X0,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_7])])).
+fof(f4346,plain,(
+  spl0_68 <=> ! [X1,X0] : (union(X1,X0) != X0 | union(concat(X1,closure(zero)),X0) = X0)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_68])])).
+fof(f4478,plain,(
+  ( ! [X0] : (union(concat(X0,closure(zero)),X0) = X0) ) | (~spl0_7 | ~spl0_68)),
+  inference(trivial_inequality_removal,[],[f4432])).
+fof(f4432,plain,(
+  ( ! [X0] : (X0 != X0 | union(concat(X0,closure(zero)),X0) = X0) ) | (~spl0_7 | ~spl0_68)),
+  inference(superposition,[],[f4347,f74])).
+fof(f74,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) ) | ~spl0_7),
+  inference(avatar_component_clause,[],[f73])).
+fof(f4347,plain,(
+  ( ! [X0,X1] : (union(X1,X0) != X0 | union(concat(X1,closure(zero)),X0) = X0) ) | ~spl0_68),
+  inference(avatar_component_clause,[],[f4346])).
+fof(f4348,plain,(
+  spl0_68 | ~spl0_2 | ~spl0_9 | ~spl0_11 | ~spl0_24),
+  inference(avatar_split_clause,[],[f603,f485,f97,f85,f53,f4346])).
+fof(f53,plain,(
+  spl0_2 <=> ! [X0] : zero = concat(X0,zero)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_2])])).
+fof(f85,plain,(
+  spl0_9 <=> ! [X0] : union(zero,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_9])])).
+fof(f97,plain,(
+  spl0_11 <=> ! [X1,X0,X2] : union(X2,union(X1,X0)) = union(union(X2,X1),X0)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_11])])).
+fof(f485,plain,(
+  spl0_24 <=> ! [X1,X0,X2] : (union(union(X1,concat(X0,X2)),X0) != X0 | union(concat(X1,closure(X2)),X0) = X0)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_24])])).
+fof(f603,plain,(
+  ( ! [X0,X1] : (union(X1,X0) != X0 | union(concat(X1,closure(zero)),X0) = X0) ) | (~spl0_2 | ~spl0_9 | ~spl0_11 | ~spl0_24)),
+  inference(forward_demodulation,[],[f602,f86])).
+fof(f86,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | ~spl0_9),
+  inference(avatar_component_clause,[],[f85])).
+fof(f602,plain,(
+  ( ! [X0,X1] : (union(X1,union(zero,X0)) != X0 | union(concat(X1,closure(zero)),X0) = X0) ) | (~spl0_2 | ~spl0_11 | ~spl0_24)),
+  inference(forward_demodulation,[],[f580,f98])).
+fof(f98,plain,(
+  ( ! [X2,X0,X1] : (union(X2,union(X1,X0)) = union(union(X2,X1),X0)) ) | ~spl0_11),
+  inference(avatar_component_clause,[],[f97])).
+fof(f580,plain,(
+  ( ! [X0,X1] : (union(union(X1,zero),X0) != X0 | union(concat(X1,closure(zero)),X0) = X0) ) | (~spl0_2 | ~spl0_24)),
+  inference(superposition,[],[f486,f54])).
+fof(f54,plain,(
+  ( ! [X0] : (zero = concat(X0,zero)) ) | ~spl0_2),
+  inference(avatar_component_clause,[],[f53])).
+fof(f486,plain,(
+  ( ! [X2,X0,X1] : (union(union(X1,concat(X0,X2)),X0) != X0 | union(concat(X1,closure(X2)),X0) = X0) ) | ~spl0_24),
+  inference(avatar_component_clause,[],[f485])).
+fof(f3301,plain,(
+  spl0_57 | ~spl0_14 | ~spl0_56),
+  inference(avatar_split_clause,[],[f3233,f3204,f140,f3299])).
+fof(f140,plain,(
+  spl0_14 <=> ! [X3,X2] : union(X2,X3) = union(X2,union(X2,X3))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_14])])).
+fof(f3204,plain,(
+  spl0_56 <=> ! [X1] : closure(X1) = union(one,concat(closure(X1),union(one,X1)))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_56])])).
+fof(f3233,plain,(
+  ( ! [X11] : (closure(X11) = union(one,closure(X11))) ) | (~spl0_14 | ~spl0_56)),
+  inference(superposition,[],[f141,f3205])).
+fof(f3205,plain,(
+  ( ! [X1] : (closure(X1) = union(one,concat(closure(X1),union(one,X1)))) ) | ~spl0_56),
+  inference(avatar_component_clause,[],[f3204])).
+fof(f141,plain,(
+  ( ! [X2,X3] : (union(X2,X3) = union(X2,union(X2,X3))) ) | ~spl0_14),
+  inference(avatar_component_clause,[],[f140])).
+fof(f3206,plain,(
+  spl0_56 | ~spl0_4 | ~spl0_8 | ~spl0_11 | ~spl0_13 | ~spl0_15),
+  inference(avatar_split_clause,[],[f267,f144,f105,f97,f77,f61,f3204])).
+fof(f61,plain,(
+  spl0_4 <=> ! [X0] : concat(X0,one) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_4])])).
+fof(f77,plain,(
+  spl0_8 <=> ! [X1,X0] : union(X1,X0) = union(X0,X1)),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_8])])).
+fof(f105,plain,(
+  spl0_13 <=> ! [X0] : closure(X0) = union(union(one,concat(closure(X0),X0)),closure(X0))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_13])])).
+fof(f144,plain,(
+  spl0_15 <=> ! [X1,X0,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_15])])).
+fof(f267,plain,(
+  ( ! [X1] : (closure(X1) = union(one,concat(closure(X1),union(one,X1)))) ) | (~spl0_4 | ~spl0_8 | ~spl0_11 | ~spl0_13 | ~spl0_15)),
+  inference(backward_demodulation,[],[f219,f248])).
+fof(f248,plain,(
+  ( ! [X2,X3] : (concat(X2,union(one,X3)) = union(X2,concat(X2,X3))) ) | (~spl0_4 | ~spl0_15)),
+  inference(superposition,[],[f145,f62])).
+fof(f62,plain,(
+  ( ! [X0] : (concat(X0,one) = X0) ) | ~spl0_4),
+  inference(avatar_component_clause,[],[f61])).
+fof(f145,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))) ) | ~spl0_15),
+  inference(avatar_component_clause,[],[f144])).
+fof(f219,plain,(
+  ( ! [X1] : (closure(X1) = union(one,union(closure(X1),concat(closure(X1),X1)))) ) | (~spl0_8 | ~spl0_11 | ~spl0_13)),
+  inference(forward_demodulation,[],[f209,f78])).
+fof(f78,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) ) | ~spl0_8),
+  inference(avatar_component_clause,[],[f77])).
+fof(f209,plain,(
+  ( ! [X1] : (closure(X1) = union(one,union(concat(closure(X1),X1),closure(X1)))) ) | (~spl0_11 | ~spl0_13)),
+  inference(superposition,[],[f106,f98])).
+fof(f106,plain,(
+  ( ! [X0] : (closure(X0) = union(union(one,concat(closure(X0),X0)),closure(X0))) ) | ~spl0_13),
+  inference(avatar_component_clause,[],[f105])).
+fof(f789,plain,(
+  spl0_30 | ~spl0_9 | ~spl0_23),
+  inference(avatar_split_clause,[],[f527,f481,f85,f787])).
+fof(f481,plain,(
+  spl0_23 <=> ! [X36,X37] : union(X37,X36) = union(zero,union(X36,X37))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_23])])).
+fof(f527,plain,(
+  ( ! [X26,X25] : (union(X26,X25) = union(union(X25,X26),zero)) ) | (~spl0_9 | ~spl0_23)),
+  inference(forward_demodulation,[],[f500,f86])).
+fof(f500,plain,(
+  ( ! [X26,X25] : (union(union(X25,X26),zero) = union(zero,union(X26,X25))) ) | ~spl0_23),
+  inference(superposition,[],[f482,f482])).
+fof(f482,plain,(
+  ( ! [X37,X36] : (union(X37,X36) = union(zero,union(X36,X37))) ) | ~spl0_23),
+  inference(avatar_component_clause,[],[f481])).
+fof(f487,plain,(
+  spl0_24),
+  inference(avatar_split_clause,[],[f46,f485])).
+fof(f46,plain,(
+  ( ! [X2,X0,X1] : (union(union(X1,concat(X0,X2)),X0) != X0 | union(concat(X1,closure(X2)),X0) = X0) )),
+  inference(cnf_transformation,[],[f30])).
+fof(f30,plain,(
+  ! [X0,X1,X2] : (union(concat(X1,closure(X2)),X0) = X0 | union(union(X1,concat(X0,X2)),X0) != X0)),
+  inference(ennf_transformation,[],[f28])).
+fof(f28,plain,(
+  ! [X0,X1,X2] : (union(union(X1,concat(X0,X2)),X0) = X0 => union(concat(X1,closure(X2)),X0) = X0)),
+  inference(rectify,[],[f15])).
+fof(f15,axiom,(
+  ! [X3,X1,X2] : (union(union(X1,concat(X3,X2)),X3) = X3 => union(concat(X1,closure(X2)),X3) = X3)),
+  file('kozens-to-our-2.p',axiom_14)).
+fof(f483,plain,(
+  spl0_23 | ~spl0_9 | ~spl0_22),
+  inference(avatar_split_clause,[],[f415,f374,f85,f481])).
+fof(f374,plain,(
+  spl0_22 <=> ! [X9,X7,X8] : union(X7,union(X8,X9)) = union(X9,union(X7,X8))),
+  introduced(avatar_definition,[new_symbols(naming,[spl0_22])])).
+fof(f415,plain,(
+  ( ! [X37,X36] : (union(X37,X36) = union(zero,union(X36,X37))) ) | (~spl0_9 | ~spl0_22)),
+  inference(superposition,[],[f375,f86])).
+fof(f375,plain,(
+  ( ! [X8,X7,X9] : (union(X7,union(X8,X9)) = union(X9,union(X7,X8))) ) | ~spl0_22),
+  inference(avatar_component_clause,[],[f374])).
+fof(f376,plain,(
+  spl0_22 | ~spl0_8 | ~spl0_11),
+  inference(avatar_split_clause,[],[f131,f97,f77,f374])).
+fof(f131,plain,(
+  ( ! [X8,X7,X9] : (union(X7,union(X8,X9)) = union(X9,union(X7,X8))) ) | (~spl0_8 | ~spl0_11)),
+  inference(superposition,[],[f98,f78])).
+fof(f146,plain,(
+  spl0_15),
+  inference(avatar_split_clause,[],[f44,f144])).
+fof(f44,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))) )),
+  inference(cnf_transformation,[],[f8])).
+fof(f8,axiom,(
+  ! [X0,X1,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  file('kozens-to-our-2.p',axiom_7)).
+fof(f142,plain,(
+  spl0_14 | ~spl0_7 | ~spl0_11),
+  inference(avatar_split_clause,[],[f124,f97,f73,f140])).
+fof(f124,plain,(
+  ( ! [X2,X3] : (union(X2,X3) = union(X2,union(X2,X3))) ) | (~spl0_7 | ~spl0_11)),
+  inference(superposition,[],[f98,f74])).
+fof(f107,plain,(
+  spl0_13),
+  inference(avatar_split_clause,[],[f40,f105])).
+fof(f40,plain,(
+  ( ! [X0] : (closure(X0) = union(union(one,concat(closure(X0),X0)),closure(X0))) )),
+  inference(cnf_transformation,[],[f26])).
+fof(f26,plain,(
+  ! [X0] : closure(X0) = union(union(one,concat(closure(X0),X0)),closure(X0))),
+  inference(rectify,[],[f13])).
+fof(f13,axiom,(
+  ! [X2] : closure(X2) = union(union(one,concat(closure(X2),X2)),closure(X2))),
+  file('kozens-to-our-2.p',axiom_12)).
+fof(f99,plain,(
+  spl0_11),
+  inference(avatar_split_clause,[],[f43,f97])).
+fof(f43,plain,(
+  ( ! [X2,X0,X1] : (union(X2,union(X1,X0)) = union(union(X2,X1),X0)) )),
+  inference(cnf_transformation,[],[f1])).
+fof(f1,axiom,(
+  ! [X0,X1,X2] : union(X2,union(X1,X0)) = union(union(X2,X1),X0)),
+  file('kozens-to-our-2.p',axiom_0)).
+fof(f87,plain,(
+  spl0_9 | ~spl0_6 | ~spl0_8),
+  inference(avatar_split_clause,[],[f80,f77,f69,f85])).
+fof(f80,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | (~spl0_6 | ~spl0_8)),
+  inference(superposition,[],[f78,f70])).
+fof(f79,plain,(
+  spl0_8),
+  inference(avatar_split_clause,[],[f41,f77])).
+fof(f41,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) )),
+  inference(cnf_transformation,[],[f27])).
+fof(f27,plain,(
+  ! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  inference(rectify,[],[f2])).
+fof(f2,axiom,(
+  ! [X1,X2] : union(X2,X1) = union(X1,X2)),
+  file('kozens-to-our-2.p',axiom_1)).
+fof(f75,plain,(
+  spl0_7),
+  inference(avatar_split_clause,[],[f38,f73])).
+fof(f38,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f24])).
+fof(f24,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f4])).
+fof(f4,axiom,(
+  ! [X2] : union(X2,X2) = X2),
+  file('kozens-to-our-2.p',axiom_3)).
+fof(f71,plain,(
+  spl0_6),
+  inference(avatar_split_clause,[],[f37,f69])).
+fof(f37,plain,(
+  ( ! [X0] : (union(X0,zero) = X0) )),
+  inference(cnf_transformation,[],[f23])).
+fof(f23,plain,(
+  ! [X0] : union(X0,zero) = X0),
+  inference(rectify,[],[f3])).
+fof(f3,axiom,(
+  ! [X2] : union(X2,zero) = X2),
+  file('kozens-to-our-2.p',axiom_2)).
+fof(f67,plain,(
+  spl0_5),
+  inference(avatar_split_clause,[],[f36,f65])).
+fof(f36,plain,(
+  ( ! [X0] : (concat(one,X0) = X0) )),
+  inference(cnf_transformation,[],[f22])).
+fof(f22,plain,(
+  ! [X0] : concat(one,X0) = X0),
+  inference(rectify,[],[f6])).
+fof(f6,axiom,(
+  ! [X2] : concat(one,X2) = X2),
+  file('kozens-to-our-2.p',axiom_5)).
+fof(f63,plain,(
+  spl0_4),
+  inference(avatar_split_clause,[],[f35,f61])).
+fof(f35,plain,(
+  ( ! [X0] : (concat(X0,one) = X0) )),
+  inference(cnf_transformation,[],[f21])).
+fof(f21,plain,(
+  ! [X0] : concat(X0,one) = X0),
+  inference(rectify,[],[f7])).
+fof(f7,axiom,(
+  ! [X2] : concat(X2,one) = X2),
+  file('kozens-to-our-2.p',axiom_6)).
+fof(f55,plain,(
+  spl0_2),
+  inference(avatar_split_clause,[],[f33,f53])).
+fof(f33,plain,(
+  ( ! [X0] : (zero = concat(X0,zero)) )),
+  inference(cnf_transformation,[],[f19])).
+fof(f19,plain,(
+  ! [X0] : zero = concat(X0,zero)),
+  inference(rectify,[],[f11])).
+fof(f11,axiom,(
+  ! [X2] : zero = concat(X2,zero)),
+  file('kozens-to-our-2.p',axiom_10)).
+fof(f51,plain,(
+  ~spl0_1),
+  inference(avatar_split_clause,[],[f32,f49])).
+fof(f32,plain,(
+  one != closure(zero)),
+  inference(cnf_transformation,[],[f18])).
+fof(f18,plain,(
+  one != closure(zero)),
+  inference(flattening,[],[f17])).
+fof(f17,negated_conjecture,(
+  ~one = closure(zero)),
+  inference(negated_conjecture,[],[f16])).
+fof(f16,conjecture,(
+  one = closure(zero)),
+  file('kozens-to-our-2.p',goal)).
+% SZS output end Proof for kozens-to-our-2
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 11385
+% Time elapsed: 0.110 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.134 s

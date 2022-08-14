@@ -1,0 +1,35 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-12
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-equational-to-our-12
+% SZS output start Proof for kozens-equational-to-our-12
+fof(f40,plain,(
+  $false),
+  inference(subsumption_resolution,[],[f26,f37])).
+fof(f37,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,concat(X1,X0)) = concat(concat(X2,X1),X0)) )),
+  inference(cnf_transformation,[],[f5])).
+fof(f5,axiom,(
+  ! [X0,X1,X2] : concat(X2,concat(X1,X0)) = concat(concat(X2,X1),X0)),
+  file('kozens-equational-to-our-12.p',axiom_4)).
+fof(f26,plain,(
+  concat(concat(sK2,sK0),sK1) != concat(sK2,concat(sK0,sK1))),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ? [X0,X1,X2] : concat(concat(X2,X0),X1) != concat(X2,concat(X0,X1))),
+  inference(ennf_transformation,[],[f15])).
+fof(f15,negated_conjecture,(
+  ~! [X0,X1,X2] : concat(concat(X2,X0),X1) = concat(X2,concat(X0,X1))),
+  inference(negated_conjecture,[],[f14])).
+fof(f14,conjecture,(
+  ! [X0,X1,X2] : concat(concat(X2,X0),X1) = concat(X2,concat(X0,X1))),
+  file('kozens-equational-to-our-12.p',goal)).
+% SZS output end Proof for kozens-equational-to-our-12
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5373
+% Time elapsed: 0.001 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.03 s

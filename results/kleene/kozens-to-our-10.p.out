@@ -1,0 +1,264 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-to-our-10
+% Time limit reached!
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Time limit
+% Termination phase: Saturation
+
+% Memory used [KB]: 178589
+% Time elapsed: 4.200 s
+% ------------------------------
+% ------------------------------
+% fmb+10_1_av=off:fmbsr=1.6:lma=on:nm=64:nwc=3:sp=reverse_arity:urr=on_258 on kozens-to-our-10
+TRYING [1]
+TRYING [2]
+TRYING [3]
+TRYING [4]
+TRYING [5]
+TRYING [6]
+TRYING [7]
+TRYING [8]
+TRYING [9]
+TRYING [10]
+TRYING [11]
+TRYING [12]
+TRYING [13]
+% Time limit reached!
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Time limit
+% Termination phase: Finite model building SAT solving
+
+% Memory used [KB]: 1259467
+% Time elapsed: 33.700 s
+% ------------------------------
+% ------------------------------
+% ott-4_4_awrs=decay:awrsf=64:add=off:afr=on:afp=40000:afq=1.0:amm=off:bs=on:gs=on:gsaa=from_current:gsem=on:irw=on:lma=on:nm=64:newcnf=on:nwc=1:sac=on:sp=frequency:updr=off_36 on kozens-to-our-10
+% Time limit reached!
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Time limit
+% Termination phase: Saturation
+
+% Memory used [KB]: 252405
+% Time elapsed: 4.800 s
+% ------------------------------
+% ------------------------------
+% ott+10_128_av=off:bs=on:gsp=input_only:irw=on:lcm=predicate:lma=on:nm=0:nwc=1:sp=occurrence:urr=on:updr=off:uhcvi=on_231 on kozens-to-our-10
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-to-our-10
+% SZS output start Proof for kozens-to-our-10
+fof(f12325,plain,(
+  $false),
+  inference(trivial_inequality_removal,[],[f12307])).
+fof(f12307,plain,(
+  closure(sK0) != closure(sK0)),
+  inference(superposition,[],[f51,f12207])).
+fof(f12207,plain,(
+  ( ! [X1] : (closure(X1) = concat(closure(X1),closure(X1))) )),
+  inference(superposition,[],[f12054,f8817])).
+fof(f8817,plain,(
+  ( ! [X43,X44] : (concat(X44,closure(X43)) = union(concat(X44,closure(X43)),X44)) )),
+  inference(superposition,[],[f8560,f6467])).
+fof(f6467,plain,(
+  ( ! [X31] : (closure(X31) = union(closure(X31),one)) )),
+  inference(forward_demodulation,[],[f6451,f52])).
+fof(f52,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) )),
+  inference(superposition,[],[f44,f40])).
+fof(f40,plain,(
+  ( ! [X0] : (union(X0,zero) = X0) )),
+  inference(cnf_transformation,[],[f23])).
+fof(f23,plain,(
+  ! [X0] : union(X0,zero) = X0),
+  inference(rectify,[],[f3])).
+fof(f3,axiom,(
+  ! [X2] : union(X2,zero) = X2),
+  file('kozens-to-our-10.p',axiom_2)).
+fof(f44,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) )),
+  inference(cnf_transformation,[],[f27])).
+fof(f27,plain,(
+  ! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  inference(rectify,[],[f2])).
+fof(f2,axiom,(
+  ! [X1,X2] : union(X2,X1) = union(X1,X2)),
+  file('kozens-to-our-10.p',axiom_1)).
+fof(f6451,plain,(
+  ( ! [X31] : (union(closure(X31),one) = union(zero,closure(X31))) )),
+  inference(superposition,[],[f192,f6379])).
+fof(f6379,plain,(
+  ( ! [X1] : (closure(X1) = union(one,closure(X1))) )),
+  inference(backward_demodulation,[],[f2589,f6378])).
+fof(f6378,plain,(
+  ( ! [X29] : (closure(X29) = union(closure(X29),concat(X29,closure(X29)))) )),
+  inference(forward_demodulation,[],[f6377,f6370])).
+fof(f6370,plain,(
+  ( ! [X7] : (closure(X7) = union(union(one,closure(X7)),concat(X7,closure(X7)))) )),
+  inference(forward_demodulation,[],[f6322,f44])).
+fof(f6322,plain,(
+  ( ! [X7] : (closure(X7) = union(union(closure(X7),one),concat(X7,closure(X7)))) )),
+  inference(superposition,[],[f2633,f294])).
+fof(f294,plain,(
+  ( ! [X24,X23,X25] : (union(union(X23,X24),X25) = union(X25,union(X24,X23))) )),
+  inference(forward_demodulation,[],[f280,f40])).
+fof(f280,plain,(
+  ( ! [X24,X23,X25] : (union(X25,union(X24,X23)) = union(union(X23,X24),union(X25,zero))) )),
+  inference(superposition,[],[f83,f192])).
+fof(f83,plain,(
+  ( ! [X8,X7,X9] : (union(X7,union(X8,X9)) = union(X9,union(X7,X8))) )),
+  inference(superposition,[],[f46,f44])).
+fof(f46,plain,(
+  ( ! [X2,X0,X1] : (union(X2,union(X1,X0)) = union(union(X2,X1),X0)) )),
+  inference(cnf_transformation,[],[f1])).
+fof(f1,axiom,(
+  ! [X0,X1,X2] : union(X2,union(X1,X0)) = union(union(X2,X1),X0)),
+  file('kozens-to-our-10.p',axiom_0)).
+fof(f2633,plain,(
+  ( ! [X3] : (closure(X3) = union(concat(X3,closure(X3)),union(one,closure(X3)))) )),
+  inference(forward_demodulation,[],[f2591,f44])).
+fof(f2591,plain,(
+  ( ! [X3] : (closure(X3) = union(concat(X3,closure(X3)),union(closure(X3),one))) )),
+  inference(superposition,[],[f42,f179])).
+fof(f179,plain,(
+  ( ! [X14,X12,X13] : (union(union(X13,X14),X12) = union(X14,union(X12,X13))) )),
+  inference(superposition,[],[f83,f44])).
+fof(f42,plain,(
+  ( ! [X0] : (closure(X0) = union(union(one,concat(X0,closure(X0))),closure(X0))) )),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ! [X0] : closure(X0) = union(union(one,concat(X0,closure(X0))),closure(X0))),
+  inference(rectify,[],[f12])).
+fof(f12,axiom,(
+  ! [X2] : closure(X2) = union(union(one,concat(X2,closure(X2))),closure(X2))),
+  file('kozens-to-our-10.p',axiom_11)).
+fof(f6377,plain,(
+  ( ! [X29] : (union(union(one,closure(X29)),concat(X29,closure(X29))) = union(closure(X29),concat(X29,closure(X29)))) )),
+  inference(forward_demodulation,[],[f6344,f44])).
+fof(f6344,plain,(
+  ( ! [X29] : (union(union(one,closure(X29)),concat(X29,closure(X29))) = union(concat(X29,closure(X29)),closure(X29))) )),
+  inference(superposition,[],[f176,f2633])).
+fof(f176,plain,(
+  ( ! [X2,X3] : (union(X3,X2) = union(X2,union(X2,X3))) )),
+  inference(superposition,[],[f83,f92])).
+fof(f92,plain,(
+  ( ! [X2,X1] : (union(X2,X1) = union(X1,union(X2,X1))) )),
+  inference(superposition,[],[f76,f44])).
+fof(f76,plain,(
+  ( ! [X2,X3] : (union(X2,X3) = union(X2,union(X2,X3))) )),
+  inference(superposition,[],[f46,f41])).
+fof(f41,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f24])).
+fof(f24,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f4])).
+fof(f4,axiom,(
+  ! [X2] : union(X2,X2) = X2),
+  file('kozens-to-our-10.p',axiom_3)).
+fof(f2589,plain,(
+  ( ! [X1] : (closure(X1) = union(one,union(closure(X1),concat(X1,closure(X1))))) )),
+  inference(superposition,[],[f42,f719])).
+fof(f719,plain,(
+  ( ! [X24,X23,X22] : (union(X23,union(X22,X24)) = union(union(X23,X24),X22)) )),
+  inference(superposition,[],[f130,f44])).
+fof(f130,plain,(
+  ( ! [X4,X5,X3] : (union(X4,union(X3,X5)) = union(X3,union(X4,X5))) )),
+  inference(superposition,[],[f77,f46])).
+fof(f77,plain,(
+  ( ! [X6,X4,X5] : (union(X4,union(X5,X6)) = union(union(X5,X4),X6)) )),
+  inference(superposition,[],[f46,f44])).
+fof(f192,plain,(
+  ( ! [X24,X25] : (union(X25,X24) = union(zero,union(X24,X25))) )),
+  inference(superposition,[],[f83,f52])).
+fof(f8560,plain,(
+  ( ! [X2,X3] : (concat(X2,union(X3,one)) = union(concat(X2,X3),X2)) )),
+  inference(superposition,[],[f47,f38])).
+fof(f38,plain,(
+  ( ! [X0] : (concat(X0,one) = X0) )),
+  inference(cnf_transformation,[],[f21])).
+fof(f21,plain,(
+  ! [X0] : concat(X0,one) = X0),
+  inference(rectify,[],[f7])).
+fof(f7,axiom,(
+  ! [X2] : concat(X2,one) = X2),
+  file('kozens-to-our-10.p',axiom_6)).
+fof(f47,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))) )),
+  inference(cnf_transformation,[],[f8])).
+fof(f8,axiom,(
+  ! [X0,X1,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  file('kozens-to-our-10.p',axiom_7)).
+fof(f12054,plain,(
+  ( ! [X74] : (closure(X74) = union(concat(closure(X74),closure(X74)),closure(X74))) )),
+  inference(subsumption_resolution,[],[f11935,f41])).
+fof(f11935,plain,(
+  ( ! [X74] : (closure(X74) != union(closure(X74),closure(X74)) | closure(X74) = union(concat(closure(X74),closure(X74)),closure(X74))) )),
+  inference(superposition,[],[f49,f6529])).
+fof(f6529,plain,(
+  ( ! [X1] : (closure(X1) = union(closure(X1),concat(closure(X1),X1))) )),
+  inference(superposition,[],[f6381,f44])).
+fof(f6381,plain,(
+  ( ! [X3] : (closure(X3) = union(concat(closure(X3),X3),closure(X3))) )),
+  inference(backward_demodulation,[],[f6274,f6379])).
+fof(f6274,plain,(
+  ( ! [X3] : (closure(X3) = union(concat(closure(X3),X3),union(one,closure(X3)))) )),
+  inference(forward_demodulation,[],[f6215,f44])).
+fof(f6215,plain,(
+  ( ! [X3] : (closure(X3) = union(concat(closure(X3),X3),union(closure(X3),one))) )),
+  inference(superposition,[],[f43,f179])).
+fof(f43,plain,(
+  ( ! [X0] : (closure(X0) = union(union(one,concat(closure(X0),X0)),closure(X0))) )),
+  inference(cnf_transformation,[],[f26])).
+fof(f26,plain,(
+  ! [X0] : closure(X0) = union(union(one,concat(closure(X0),X0)),closure(X0))),
+  inference(rectify,[],[f13])).
+fof(f13,axiom,(
+  ! [X2] : closure(X2) = union(union(one,concat(closure(X2),X2)),closure(X2))),
+  file('kozens-to-our-10.p',axiom_12)).
+fof(f49,plain,(
+  ( ! [X2,X0,X1] : (union(union(X1,concat(X0,X2)),X0) != X0 | union(concat(X1,closure(X2)),X0) = X0) )),
+  inference(cnf_transformation,[],[f31])).
+fof(f31,plain,(
+  ! [X0,X1,X2] : (union(concat(X1,closure(X2)),X0) = X0 | union(union(X1,concat(X0,X2)),X0) != X0)),
+  inference(ennf_transformation,[],[f28])).
+fof(f28,plain,(
+  ! [X0,X1,X2] : (union(union(X1,concat(X0,X2)),X0) = X0 => union(concat(X1,closure(X2)),X0) = X0)),
+  inference(rectify,[],[f15])).
+fof(f15,axiom,(
+  ! [X3,X1,X2] : (union(union(X1,concat(X3,X2)),X3) = X3 => union(concat(X1,closure(X2)),X3) = X3)),
+  file('kozens-to-our-10.p',axiom_14)).
+fof(f51,plain,(
+  closure(sK0) != concat(closure(sK0),closure(sK0))),
+  inference(backward_demodulation,[],[f35,f41])).
+fof(f35,plain,(
+  closure(union(sK0,sK0)) != concat(closure(sK0),closure(sK0))),
+  inference(cnf_transformation,[],[f34])).
+fof(f34,plain,(
+  closure(union(sK0,sK0)) != concat(closure(sK0),closure(sK0))),
+  inference(skolemisation,[status(esa),new_symbols(skolem,[sK0])],[f30,f33])).
+fof(f33,plain,(
+  ? [X0] : closure(union(X0,X0)) != concat(closure(X0),closure(X0)) => closure(union(sK0,sK0)) != concat(closure(sK0),closure(sK0))),
+  introduced(choice_axiom,[])).
+fof(f30,plain,(
+  ? [X0] : closure(union(X0,X0)) != concat(closure(X0),closure(X0))),
+  inference(ennf_transformation,[],[f18])).
+fof(f18,plain,(
+  ~! [X0] : closure(union(X0,X0)) = concat(closure(X0),closure(X0))),
+  inference(rectify,[],[f17])).
+fof(f17,negated_conjecture,(
+  ~! [X1] : closure(union(X1,X1)) = concat(closure(X1),closure(X1))),
+  inference(negated_conjecture,[],[f16])).
+fof(f16,conjecture,(
+  ! [X1] : closure(union(X1,X1)) = concat(closure(X1),closure(X1))),
+  file('kozens-to-our-10.p',goal)).
+% SZS output end Proof for kozens-to-our-10
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 13432
+% Time elapsed: 0.240 s
+% ------------------------------
+% ------------------------------
+% Success in time 43.062 s

@@ -1,0 +1,143 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-4
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-equational-to-our-4
+% SZS output start Proof for kozens-equational-to-our-4
+fof(f145,plain,(
+  $false),
+  inference(avatar_sat_refutation,[],[f62,f66,f70,f87,f97,f144])).
+fof(f144,plain,(
+  ~spl2_6 | spl2_9 | ~spl2_11),
+  inference(avatar_contradiction_clause,[],[f143])).
+fof(f143,plain,(
+  $false | (~spl2_6 | spl2_9 | ~spl2_11)),
+  inference(trivial_inequality_removal,[],[f142])).
+fof(f142,plain,(
+  union(sK0,sK1) != union(sK0,sK1) | (~spl2_6 | spl2_9 | ~spl2_11)),
+  inference(forward_demodulation,[],[f135,f65])).
+fof(f65,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) ) | ~spl2_6),
+  inference(avatar_component_clause,[],[f64])).
+fof(f64,plain,(
+  spl2_6 <=> ! [X0] : union(X0,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_6])])).
+fof(f135,plain,(
+  union(sK0,sK1) != union(sK0,union(sK1,sK1)) | (spl2_9 | ~spl2_11)),
+  inference(superposition,[],[f86,f96])).
+fof(f96,plain,(
+  ( ! [X2,X0,X1] : (union(X2,union(X1,X0)) = union(union(X2,X1),X0)) ) | ~spl2_11),
+  inference(avatar_component_clause,[],[f95])).
+fof(f95,plain,(
+  spl2_11 <=> ! [X1,X0,X2] : union(X2,union(X1,X0)) = union(union(X2,X1),X0)),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_11])])).
+fof(f86,plain,(
+  union(sK0,sK1) != union(union(sK0,sK1),sK1) | spl2_9),
+  inference(avatar_component_clause,[],[f85])).
+fof(f85,plain,(
+  spl2_9 <=> union(sK0,sK1) = union(union(sK0,sK1),sK1)),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_9])])).
+fof(f97,plain,(
+  spl2_11),
+  inference(avatar_split_clause,[],[f38,f95])).
+fof(f38,plain,(
+  ( ! [X2,X0,X1] : (union(X2,union(X1,X0)) = union(union(X2,X1),X0)) )),
+  inference(cnf_transformation,[],[f1])).
+fof(f1,axiom,(
+  ! [X0,X1,X2] : union(X2,union(X1,X0)) = union(union(X2,X1),X0)),
+  file('kozens-equational-to-our-4.p',axiom_0)).
+fof(f87,plain,(
+  ~spl2_9 | ~spl2_5 | ~spl2_7),
+  inference(avatar_split_clause,[],[f75,f68,f60,f85])).
+fof(f60,plain,(
+  spl2_5 <=> ! [X0] : union(X0,zero) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_5])])).
+fof(f68,plain,(
+  spl2_7 <=> ! [X1,X0] : union(X1,X0) = union(X0,X1)),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_7])])).
+fof(f75,plain,(
+  union(sK0,sK1) != union(union(sK0,sK1),sK1) | (~spl2_5 | ~spl2_7)),
+  inference(backward_demodulation,[],[f42,f71])).
+fof(f71,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | (~spl2_5 | ~spl2_7)),
+  inference(superposition,[],[f69,f61])).
+fof(f61,plain,(
+  ( ! [X0] : (union(X0,zero) = X0) ) | ~spl2_5),
+  inference(avatar_component_clause,[],[f60])).
+fof(f69,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) ) | ~spl2_7),
+  inference(avatar_component_clause,[],[f68])).
+fof(f42,plain,(
+  union(union(sK0,sK1),sK1) != union(zero,union(sK0,sK1))),
+  inference(backward_demodulation,[],[f41,f36])).
+fof(f36,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) )),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  inference(rectify,[],[f2])).
+fof(f2,axiom,(
+  ! [X1,X2] : union(X2,X1) = union(X1,X2)),
+  file('kozens-equational-to-our-4.p',axiom_1)).
+fof(f41,plain,(
+  union(union(sK0,sK1),sK1) != union(zero,union(sK1,sK0))),
+  inference(backward_demodulation,[],[f27,f28])).
+fof(f28,plain,(
+  ( ! [X0] : (zero = concat(X0,zero)) )),
+  inference(cnf_transformation,[],[f17])).
+fof(f17,plain,(
+  ! [X0] : zero = concat(X0,zero)),
+  inference(rectify,[],[f11])).
+fof(f11,axiom,(
+  ! [X2] : zero = concat(X2,zero)),
+  file('kozens-equational-to-our-4.p',axiom_10)).
+fof(f27,plain,(
+  union(concat(zero,zero),union(sK1,sK0)) != union(union(sK0,sK1),sK1)),
+  inference(cnf_transformation,[],[f26])).
+fof(f26,plain,(
+  ? [X0,X1] : union(concat(zero,zero),union(X1,X0)) != union(union(X0,X1),X1)),
+  inference(ennf_transformation,[],[f16])).
+fof(f16,plain,(
+  ~! [X0,X1] : union(concat(zero,zero),union(X1,X0)) = union(union(X0,X1),X1)),
+  inference(rectify,[],[f15])).
+fof(f15,negated_conjecture,(
+  ~! [X1,X2] : union(concat(zero,zero),union(X2,X1)) = union(union(X1,X2),X2)),
+  inference(negated_conjecture,[],[f14])).
+fof(f14,conjecture,(
+  ! [X1,X2] : union(concat(zero,zero),union(X2,X1)) = union(union(X1,X2),X2)),
+  file('kozens-equational-to-our-4.p',goal)).
+fof(f70,plain,(
+  spl2_7),
+  inference(avatar_split_clause,[],[f36,f68])).
+fof(f66,plain,(
+  spl2_6),
+  inference(avatar_split_clause,[],[f33,f64])).
+fof(f33,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f22])).
+fof(f22,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f4])).
+fof(f4,axiom,(
+  ! [X2] : union(X2,X2) = X2),
+  file('kozens-equational-to-our-4.p',axiom_3)).
+fof(f62,plain,(
+  spl2_5),
+  inference(avatar_split_clause,[],[f32,f60])).
+fof(f32,plain,(
+  ( ! [X0] : (union(X0,zero) = X0) )),
+  inference(cnf_transformation,[],[f21])).
+fof(f21,plain,(
+  ! [X0] : union(X0,zero) = X0),
+  inference(rectify,[],[f3])).
+fof(f3,axiom,(
+  ! [X2] : union(X2,zero) = X2),
+  file('kozens-equational-to-our-4.p',axiom_2)).
+% SZS output end Proof for kozens-equational-to-our-4
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5500
+% Time elapsed: 0.002 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.029 s

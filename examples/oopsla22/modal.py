@@ -558,10 +558,13 @@ def output_latex_table(results: Tuple[Result, ...]) -> None:
 
         first_row_prefix += " &"
 
-        synthesis_time = round_str(result.stopwatch.get("synthesis") + result.stopwatch.get("encoding"), 1) + "\\,s"
-        counterexample_time = round_str(result.stopwatch.get("counterexample"), 2) + "\\,s"
-        soundness_time = round_str(result.stopwatch.get("soundness"), 2) + "\\,s"
-        completeness_time = round_str(result.stopwatch.get("completeness"), 2) + "\\,s" if result.complete else "-"
+        # total = result.stopwatch.get("synthesis") + result.stopwatch.get("counterexample") + result.stopwatch.get("soundness") + result.stopwatch.get("completeness")
+        # print(result.stopwatch.get("synthesis") / total, file=sys.stderr)
+
+        synthesis_time = round_str(result.stopwatch.get("synthesis") + result.stopwatch.get("encoding"), 1)
+        counterexample_time = round_str(result.stopwatch.get("counterexample"), 2)
+        soundness_time = round_str(result.stopwatch.get("soundness"), 2)
+        completeness_time = round_str(result.stopwatch.get("completeness"), 2) if result.complete else "timeout"
         first_row_suffix = f" & {synthesis_time} & {counterexample_time} & {soundness_time} & {completeness_time}"
 
         other_row_prefix = "& &"
@@ -619,18 +622,19 @@ def output_timing_graph(args: argparse.Namespace, results: Tuple[Result, ...]) -
     # theory_names = tuple(map(lambda t: f"{t[1].display_name + ' ' if t[1].display_name is not None else ''}{t[1].acronym}", modal_logic_info))
     theory_names = tuple(map(lambda t: t[1].acronym, modal_logic_info))
 
-    plot.figure(figsize=(14, 7))
+    plot.figure(figsize=(14, 8))
 
     plot.xlabel("Time (seconds)")
     # plot.ylabel("Modal Logic")
     plot.yticks(range(len(modal_logic_info)), reversed(theory_names))
+    # plot.xscale("log")
 
     marker_map: Dict[modal.FormulaResultType, Mapping[str, str]] = {
         modal.FormulaResultType.GOOD: { "marker": "o", "color": "green", "markersize": 7 },
-        modal.FormulaResultType.COUNTEREXAMPLE: { "marker": "x", "color": "red", "markersize": 9 },
-        modal.FormulaResultType.UNSOUND: { "marker": "x", "color": "red", "markersize": 9 },
-        modal.FormulaResultType.DEPENDENT: { "marker": "$D$", "color": "blue", "markersize": 9 },
-        modal.FormulaResultType.PRUNED: { "marker": "$D$", "color": "blue", "markersize": 9 },
+        modal.FormulaResultType.COUNTEREXAMPLE: { "marker": 2, "color": "red", "markersize": 7 },
+        modal.FormulaResultType.UNSOUND: { "marker": 2, "color": "red", "markersize": 7 },
+        modal.FormulaResultType.DEPENDENT: { "marker": 3, "color": "blue", "markersize": 7 },
+        modal.FormulaResultType.PRUNED: { "marker": 3, "color": "blue", "markersize": 7 },
     }
 
     point_label: Dict[modal.FormulaResultType, str] = {
@@ -672,7 +676,7 @@ def output_timing_graph(args: argparse.Namespace, results: Tuple[Result, ...]) -
                 print(f"result type {axiom.result} not found")
 
     plot.legend()
-    plot.xlim(-1, max_synthesis_time + 1)
+    plot.xlim(-0.2, 20) # max_synthesis_time + 1)
     plot.tight_layout()
 
     if args.save_plot is not None:

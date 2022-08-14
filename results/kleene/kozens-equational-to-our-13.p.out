@@ -1,0 +1,59 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-13
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-equational-to-our-13
+% SZS output start Proof for kozens-equational-to-our-13
+fof(f42,plain,(
+  $false),
+  inference(subsumption_resolution,[],[f41,f38])).
+fof(f38,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))) )),
+  inference(cnf_transformation,[],[f8])).
+fof(f8,axiom,(
+  ! [X0,X1,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  file('kozens-equational-to-our-13.p',axiom_7)).
+fof(f41,plain,(
+  union(concat(sK2,sK0),concat(sK2,sK1)) != concat(sK2,union(sK0,sK1))),
+  inference(backward_demodulation,[],[f40,f35])).
+fof(f35,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) )),
+  inference(cnf_transformation,[],[f24])).
+fof(f24,plain,(
+  ! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  inference(rectify,[],[f2])).
+fof(f2,axiom,(
+  ! [X1,X2] : union(X2,X1) = union(X1,X2)),
+  file('kozens-equational-to-our-13.p',axiom_1)).
+fof(f40,plain,(
+  union(concat(sK2,sK0),concat(sK2,sK1)) != concat(sK2,union(sK1,sK0))),
+  inference(backward_demodulation,[],[f26,f32])).
+fof(f32,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f21])).
+fof(f21,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f4])).
+fof(f4,axiom,(
+  ! [X2] : union(X2,X2) = X2),
+  file('kozens-equational-to-our-13.p',axiom_3)).
+fof(f26,plain,(
+  concat(union(sK2,sK2),union(sK1,sK0)) != union(concat(sK2,sK0),concat(sK2,sK1))),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ? [X0,X1,X2] : concat(union(X2,X2),union(X1,X0)) != union(concat(X2,X0),concat(X2,X1))),
+  inference(ennf_transformation,[],[f15])).
+fof(f15,negated_conjecture,(
+  ~! [X0,X1,X2] : concat(union(X2,X2),union(X1,X0)) = union(concat(X2,X0),concat(X2,X1))),
+  inference(negated_conjecture,[],[f14])).
+fof(f14,conjecture,(
+  ! [X0,X1,X2] : concat(union(X2,X2),union(X1,X0)) = union(concat(X2,X0),concat(X2,X1))),
+  file('kozens-equational-to-our-13.p',goal)).
+% SZS output end Proof for kozens-equational-to-our-13
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5373
+% Time elapsed: 0.001 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.029 s

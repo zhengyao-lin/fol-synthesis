@@ -1,0 +1,152 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on ours-to-kozen-1
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for ours-to-kozen-1
+% SZS output start Proof for ours-to-kozen-1
+fof(f368,plain,(
+  $false),
+  inference(avatar_sat_refutation,[],[f61,f65,f130,f193,f200,f218,f252,f355])).
+fof(f355,plain,(
+  spl2_5 | ~spl2_18 | ~spl2_20 | ~spl2_23),
+  inference(avatar_contradiction_clause,[],[f351])).
+fof(f351,plain,(
+  $false | (spl2_5 | ~spl2_18 | ~spl2_20 | ~spl2_23)),
+  inference(subsumption_resolution,[],[f64,f350])).
+fof(f350,plain,(
+  ( ! [X2,X3] : (union(X2,X3) = union(X3,X2)) ) | (~spl2_18 | ~spl2_20 | ~spl2_23)),
+  inference(forward_demodulation,[],[f319,f192])).
+fof(f192,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | ~spl2_18),
+  inference(avatar_component_clause,[],[f191])).
+fof(f191,plain,(
+  spl2_18 <=> ! [X0] : union(zero,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_18])])).
+fof(f319,plain,(
+  ( ! [X2,X3] : (union(X3,X2) = union(X2,union(zero,X3))) ) | (~spl2_20 | ~spl2_23)),
+  inference(superposition,[],[f251,f217])).
+fof(f217,plain,(
+  ( ! [X1] : (union(X1,zero) = X1) ) | ~spl2_20),
+  inference(avatar_component_clause,[],[f216])).
+fof(f216,plain,(
+  spl2_20 <=> ! [X1] : union(X1,zero) = X1),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_20])])).
+fof(f251,plain,(
+  ( ! [X2,X0,X1] : (union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))) ) | ~spl2_23),
+  inference(avatar_component_clause,[],[f250])).
+fof(f250,plain,(
+  spl2_23 <=> ! [X1,X0,X2] : union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_23])])).
+fof(f64,plain,(
+  union(sK1,sK0) != union(sK0,sK1) | spl2_5),
+  inference(avatar_component_clause,[],[f63])).
+fof(f63,plain,(
+  spl2_5 <=> union(sK1,sK0) = union(sK0,sK1)),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_5])])).
+fof(f252,plain,(
+  spl2_23),
+  inference(avatar_split_clause,[],[f38,f250])).
+fof(f38,plain,(
+  ( ! [X2,X0,X1] : (union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))) )),
+  inference(cnf_transformation,[],[f21])).
+fof(f21,plain,(
+  ! [X0,X1,X2] : union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))),
+  inference(rectify,[],[f12])).
+fof(f12,axiom,(
+  ! [X2,X0,X1] : union(X0,union(X2,X1)) = union(union(X2,X1),union(X1,X0))),
+  file('ours-to-kozen-1.p',axiom_11)).
+fof(f218,plain,(
+  spl2_20 | ~spl2_4 | ~spl2_18 | ~spl2_19),
+  inference(avatar_split_clause,[],[f207,f198,f191,f59,f216])).
+fof(f59,plain,(
+  spl2_4 <=> ! [X0] : union(X0,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_4])])).
+fof(f198,plain,(
+  spl2_19 <=> ! [X1,X0] : union(X1,X0) = union(union(X0,X1),X1)),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_19])])).
+fof(f207,plain,(
+  ( ! [X1] : (union(X1,zero) = X1) ) | (~spl2_4 | ~spl2_18 | ~spl2_19)),
+  inference(forward_demodulation,[],[f202,f60])).
+fof(f60,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) ) | ~spl2_4),
+  inference(avatar_component_clause,[],[f59])).
+fof(f202,plain,(
+  ( ! [X1] : (union(X1,X1) = union(X1,zero)) ) | (~spl2_18 | ~spl2_19)),
+  inference(superposition,[],[f199,f192])).
+fof(f199,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(union(X0,X1),X1)) ) | ~spl2_19),
+  inference(avatar_component_clause,[],[f198])).
+fof(f200,plain,(
+  spl2_19 | ~spl2_4 | ~spl2_15),
+  inference(avatar_split_clause,[],[f178,f128,f59,f198])).
+fof(f128,plain,(
+  spl2_15 <=> ! [X1,X0] : union(union(X0,X1),X1) = union(zero,union(X1,X0))),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_15])])).
+fof(f178,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(union(X0,X1),X1)) ) | (~spl2_4 | ~spl2_15)),
+  inference(backward_demodulation,[],[f129,f177])).
+fof(f177,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | (~spl2_4 | ~spl2_15)),
+  inference(forward_demodulation,[],[f172,f60])).
+fof(f172,plain,(
+  ( ! [X0] : (union(X0,X0) = union(zero,X0)) ) | (~spl2_4 | ~spl2_15)),
+  inference(superposition,[],[f129,f60])).
+fof(f129,plain,(
+  ( ! [X0,X1] : (union(union(X0,X1),X1) = union(zero,union(X1,X0))) ) | ~spl2_15),
+  inference(avatar_component_clause,[],[f128])).
+fof(f193,plain,(
+  spl2_18 | ~spl2_4 | ~spl2_15),
+  inference(avatar_split_clause,[],[f177,f128,f59,f191])).
+fof(f130,plain,(
+  spl2_15),
+  inference(avatar_split_clause,[],[f44,f128])).
+fof(f44,plain,(
+  ( ! [X0,X1] : (union(union(X0,X1),X1) = union(zero,union(X1,X0))) )),
+  inference(forward_demodulation,[],[f36,f27])).
+fof(f27,plain,(
+  ( ! [X0] : (zero = concat(X0,zero)) )),
+  inference(cnf_transformation,[],[f2])).
+fof(f2,axiom,(
+  ! [X0] : zero = concat(X0,zero)),
+  file('ours-to-kozen-1.p',axiom_1)).
+fof(f36,plain,(
+  ( ! [X0,X1] : (union(concat(zero,zero),union(X1,X0)) = union(union(X0,X1),X1)) )),
+  inference(cnf_transformation,[],[f5])).
+fof(f5,axiom,(
+  ! [X0,X1] : union(concat(zero,zero),union(X1,X0)) = union(union(X0,X1),X1)),
+  file('ours-to-kozen-1.p',axiom_4)).
+fof(f65,plain,(
+  ~spl2_5),
+  inference(avatar_split_clause,[],[f25,f63])).
+fof(f25,plain,(
+  union(sK1,sK0) != union(sK0,sK1)),
+  inference(cnf_transformation,[],[f24])).
+fof(f24,plain,(
+  ? [X0,X1] : union(X1,X0) != union(X0,X1)),
+  inference(ennf_transformation,[],[f17])).
+fof(f17,negated_conjecture,(
+  ~! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  inference(negated_conjecture,[],[f16])).
+fof(f16,conjecture,(
+  ! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  file('ours-to-kozen-1.p',goal)).
+fof(f61,plain,(
+  spl2_4),
+  inference(avatar_split_clause,[],[f29,f59])).
+fof(f29,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f18])).
+fof(f18,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f10])).
+fof(f10,axiom,(
+  ! [X1] : union(X1,X1) = X1),
+  file('ours-to-kozen-1.p',axiom_9)).
+% SZS output end Proof for ours-to-kozen-1
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5756
+% Time elapsed: 0.010 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.05 s

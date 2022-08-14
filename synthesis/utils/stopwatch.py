@@ -34,9 +34,12 @@ class Stopwatch:
         # Current start time of each component
         self.start_time: Dict[str, float] = {}
 
-    def start(self, name: str) -> None:
+    def start(self, name: str, clear: bool = False) -> None:
         assert name not in self.start_time, f"starting component {name} multiple times"
         self.start_time[name] = time.time()
+
+        if clear and name in self.total_elapsed:
+            del self.total_elapsed[name]
 
     def end(self, name: str) -> float:
         """
@@ -53,9 +56,9 @@ class Stopwatch:
         return elapsed
 
     @contextmanager
-    def time(self, name: str) -> Generator[None, None, None]:
+    def time(self, name: str, clear: bool = False) -> Generator[None, None, None]:
         try:
-            self.start(name)
+            self.start(name, clear=clear)
             yield
         finally:
             self.end(name)

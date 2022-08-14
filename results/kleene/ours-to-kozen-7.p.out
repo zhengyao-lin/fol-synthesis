@@ -1,0 +1,173 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on ours-to-kozen-7
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for ours-to-kozen-7
+% SZS output start Proof for ours-to-kozen-7
+fof(f371,plain,(
+  $false),
+  inference(avatar_sat_refutation,[],[f63,f124,f132,f195,f202,f220,f254,f358])).
+fof(f358,plain,(
+  spl3_13 | ~spl3_18 | ~spl3_20 | ~spl3_23),
+  inference(avatar_contradiction_clause,[],[f357])).
+fof(f357,plain,(
+  $false | (spl3_13 | ~spl3_18 | ~spl3_20 | ~spl3_23)),
+  inference(trivial_inequality_removal,[],[f356])).
+fof(f356,plain,(
+  concat(sK2,union(sK0,sK1)) != concat(sK2,union(sK0,sK1)) | (spl3_13 | ~spl3_18 | ~spl3_20 | ~spl3_23)),
+  inference(backward_demodulation,[],[f123,f352])).
+fof(f352,plain,(
+  ( ! [X2,X3] : (union(X2,X3) = union(X3,X2)) ) | (~spl3_18 | ~spl3_20 | ~spl3_23)),
+  inference(forward_demodulation,[],[f321,f194])).
+fof(f194,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | ~spl3_18),
+  inference(avatar_component_clause,[],[f193])).
+fof(f193,plain,(
+  spl3_18 <=> ! [X0] : union(zero,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_18])])).
+fof(f321,plain,(
+  ( ! [X2,X3] : (union(X3,X2) = union(X2,union(zero,X3))) ) | (~spl3_20 | ~spl3_23)),
+  inference(superposition,[],[f253,f219])).
+fof(f219,plain,(
+  ( ! [X1] : (union(X1,zero) = X1) ) | ~spl3_20),
+  inference(avatar_component_clause,[],[f218])).
+fof(f218,plain,(
+  spl3_20 <=> ! [X1] : union(X1,zero) = X1),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_20])])).
+fof(f253,plain,(
+  ( ! [X2,X0,X1] : (union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))) ) | ~spl3_23),
+  inference(avatar_component_clause,[],[f252])).
+fof(f252,plain,(
+  spl3_23 <=> ! [X1,X0,X2] : union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_23])])).
+fof(f123,plain,(
+  concat(sK2,union(sK1,sK0)) != concat(sK2,union(sK0,sK1)) | spl3_13),
+  inference(avatar_component_clause,[],[f122])).
+fof(f122,plain,(
+  spl3_13 <=> concat(sK2,union(sK1,sK0)) = concat(sK2,union(sK0,sK1))),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_13])])).
+fof(f254,plain,(
+  spl3_23),
+  inference(avatar_split_clause,[],[f39,f252])).
+fof(f39,plain,(
+  ( ! [X2,X0,X1] : (union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))) )),
+  inference(cnf_transformation,[],[f22])).
+fof(f22,plain,(
+  ! [X0,X1,X2] : union(X1,union(X0,X2)) = union(union(X0,X2),union(X2,X1))),
+  inference(rectify,[],[f12])).
+fof(f12,axiom,(
+  ! [X2,X0,X1] : union(X0,union(X2,X1)) = union(union(X2,X1),union(X1,X0))),
+  file('ours-to-kozen-7.p',axiom_11)).
+fof(f220,plain,(
+  spl3_20 | ~spl3_4 | ~spl3_18 | ~spl3_19),
+  inference(avatar_split_clause,[],[f209,f200,f193,f61,f218])).
+fof(f61,plain,(
+  spl3_4 <=> ! [X0] : union(X0,X0) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_4])])).
+fof(f200,plain,(
+  spl3_19 <=> ! [X1,X0] : union(X1,X0) = union(union(X0,X1),X1)),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_19])])).
+fof(f209,plain,(
+  ( ! [X1] : (union(X1,zero) = X1) ) | (~spl3_4 | ~spl3_18 | ~spl3_19)),
+  inference(forward_demodulation,[],[f204,f62])).
+fof(f62,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) ) | ~spl3_4),
+  inference(avatar_component_clause,[],[f61])).
+fof(f204,plain,(
+  ( ! [X1] : (union(X1,X1) = union(X1,zero)) ) | (~spl3_18 | ~spl3_19)),
+  inference(superposition,[],[f201,f194])).
+fof(f201,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(union(X0,X1),X1)) ) | ~spl3_19),
+  inference(avatar_component_clause,[],[f200])).
+fof(f202,plain,(
+  spl3_19 | ~spl3_4 | ~spl3_15),
+  inference(avatar_split_clause,[],[f180,f130,f61,f200])).
+fof(f130,plain,(
+  spl3_15 <=> ! [X1,X0] : union(union(X0,X1),X1) = union(zero,union(X1,X0))),
+  introduced(avatar_definition,[new_symbols(naming,[spl3_15])])).
+fof(f180,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(union(X0,X1),X1)) ) | (~spl3_4 | ~spl3_15)),
+  inference(backward_demodulation,[],[f131,f179])).
+fof(f179,plain,(
+  ( ! [X0] : (union(zero,X0) = X0) ) | (~spl3_4 | ~spl3_15)),
+  inference(forward_demodulation,[],[f174,f62])).
+fof(f174,plain,(
+  ( ! [X0] : (union(X0,X0) = union(zero,X0)) ) | (~spl3_4 | ~spl3_15)),
+  inference(superposition,[],[f131,f62])).
+fof(f131,plain,(
+  ( ! [X0,X1] : (union(union(X0,X1),X1) = union(zero,union(X1,X0))) ) | ~spl3_15),
+  inference(avatar_component_clause,[],[f130])).
+fof(f195,plain,(
+  spl3_18 | ~spl3_4 | ~spl3_15),
+  inference(avatar_split_clause,[],[f179,f130,f61,f193])).
+fof(f132,plain,(
+  spl3_15),
+  inference(avatar_split_clause,[],[f45,f130])).
+fof(f45,plain,(
+  ( ! [X0,X1] : (union(union(X0,X1),X1) = union(zero,union(X1,X0))) )),
+  inference(forward_demodulation,[],[f37,f28])).
+fof(f28,plain,(
+  ( ! [X0] : (zero = concat(X0,zero)) )),
+  inference(cnf_transformation,[],[f2])).
+fof(f2,axiom,(
+  ! [X0] : zero = concat(X0,zero)),
+  file('ours-to-kozen-7.p',axiom_1)).
+fof(f37,plain,(
+  ( ! [X0,X1] : (union(concat(zero,zero),union(X1,X0)) = union(union(X0,X1),X1)) )),
+  inference(cnf_transformation,[],[f5])).
+fof(f5,axiom,(
+  ! [X0,X1] : union(concat(zero,zero),union(X1,X0)) = union(union(X0,X1),X1)),
+  file('ours-to-kozen-7.p',axiom_4)).
+fof(f124,plain,(
+  ~spl3_13),
+  inference(avatar_split_clause,[],[f47,f122])).
+fof(f47,plain,(
+  concat(sK2,union(sK1,sK0)) != concat(sK2,union(sK0,sK1))),
+  inference(backward_demodulation,[],[f26,f46])).
+fof(f46,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X0),concat(X2,X1))) )),
+  inference(forward_demodulation,[],[f41,f30])).
+fof(f30,plain,(
+  ( ! [X0] : (union(X0,X0) = X0) )),
+  inference(cnf_transformation,[],[f19])).
+fof(f19,plain,(
+  ! [X0] : union(X0,X0) = X0),
+  inference(rectify,[],[f10])).
+fof(f10,axiom,(
+  ! [X1] : union(X1,X1) = X1),
+  file('ours-to-kozen-7.p',axiom_9)).
+fof(f41,plain,(
+  ( ! [X2,X0,X1] : (concat(union(X2,X2),union(X1,X0)) = union(concat(X2,X0),concat(X2,X1))) )),
+  inference(cnf_transformation,[],[f24])).
+fof(f24,plain,(
+  ! [X0,X1,X2] : concat(union(X2,X2),union(X1,X0)) = union(concat(X2,X0),concat(X2,X1))),
+  inference(rectify,[],[f14])).
+fof(f14,axiom,(
+  ! [X2,X0,X1] : concat(union(X1,X1),union(X0,X2)) = union(concat(X1,X2),concat(X1,X0))),
+  file('ours-to-kozen-7.p',axiom_13)).
+fof(f26,plain,(
+  concat(sK2,union(sK1,sK0)) != union(concat(sK2,sK1),concat(sK2,sK0))),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ? [X0,X1,X2] : concat(X2,union(X1,X0)) != union(concat(X2,X1),concat(X2,X0))),
+  inference(ennf_transformation,[],[f18])).
+fof(f18,plain,(
+  ~! [X0,X1,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  inference(rectify,[],[f17])).
+fof(f17,negated_conjecture,(
+  ~! [X2,X0,X1] : concat(X1,union(X0,X2)) = union(concat(X1,X0),concat(X1,X2))),
+  inference(negated_conjecture,[],[f16])).
+fof(f16,conjecture,(
+  ! [X2,X0,X1] : concat(X1,union(X0,X2)) = union(concat(X1,X0),concat(X1,X2))),
+  file('ours-to-kozen-7.p',goal)).
+fof(f63,plain,(
+  spl3_4),
+  inference(avatar_split_clause,[],[f30,f61])).
+% SZS output end Proof for ours-to-kozen-7
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5756
+% Time elapsed: 0.006 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.04 s

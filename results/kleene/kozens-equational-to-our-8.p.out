@@ -1,0 +1,107 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-8
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for kozens-equational-to-our-8
+% SZS output start Proof for kozens-equational-to-our-8
+fof(f276,plain,(
+  $false),
+  inference(avatar_sat_refutation,[],[f58,f86,f175,f264])).
+fof(f264,plain,(
+  ~spl2_4 | spl2_9 | ~spl2_16),
+  inference(avatar_contradiction_clause,[],[f262])).
+fof(f262,plain,(
+  $false | (~spl2_4 | spl2_9 | ~spl2_16)),
+  inference(subsumption_resolution,[],[f85,f243])).
+fof(f243,plain,(
+  ( ! [X2,X3] : (concat(X2,union(one,X3)) = union(X2,concat(X2,X3))) ) | (~spl2_4 | ~spl2_16)),
+  inference(superposition,[],[f174,f57])).
+fof(f57,plain,(
+  ( ! [X0] : (concat(X0,one) = X0) ) | ~spl2_4),
+  inference(avatar_component_clause,[],[f56])).
+fof(f56,plain,(
+  spl2_4 <=> ! [X0] : concat(X0,one) = X0),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_4])])).
+fof(f174,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))) ) | ~spl2_16),
+  inference(avatar_component_clause,[],[f173])).
+fof(f173,plain,(
+  spl2_16 <=> ! [X1,X0,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_16])])).
+fof(f85,plain,(
+  concat(sK1,union(one,sK0)) != union(sK1,concat(sK1,sK0)) | spl2_9),
+  inference(avatar_component_clause,[],[f84])).
+fof(f84,plain,(
+  spl2_9 <=> concat(sK1,union(one,sK0)) = union(sK1,concat(sK1,sK0))),
+  introduced(avatar_definition,[new_symbols(naming,[spl2_9])])).
+fof(f175,plain,(
+  spl2_16),
+  inference(avatar_split_clause,[],[f39,f173])).
+fof(f39,plain,(
+  ( ! [X2,X0,X1] : (concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))) )),
+  inference(cnf_transformation,[],[f8])).
+fof(f8,axiom,(
+  ! [X0,X1,X2] : concat(X2,union(X1,X0)) = union(concat(X2,X1),concat(X2,X0))),
+  file('kozens-equational-to-our-8.p',axiom_7)).
+fof(f86,plain,(
+  ~spl2_9),
+  inference(avatar_split_clause,[],[f42,f84])).
+fof(f42,plain,(
+  concat(sK1,union(one,sK0)) != union(sK1,concat(sK1,sK0))),
+  inference(backward_demodulation,[],[f41,f36])).
+fof(f36,plain,(
+  ( ! [X0,X1] : (union(X1,X0) = union(X0,X1)) )),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ! [X0,X1] : union(X1,X0) = union(X0,X1)),
+  inference(rectify,[],[f2])).
+fof(f2,axiom,(
+  ! [X1,X2] : union(X2,X1) = union(X1,X2)),
+  file('kozens-equational-to-our-8.p',axiom_1)).
+fof(f41,plain,(
+  union(concat(sK1,sK0),sK1) != concat(sK1,union(one,sK0))),
+  inference(backward_demodulation,[],[f27,f32])).
+fof(f32,plain,(
+  ( ! [X0] : (concat(one,X0) = X0) )),
+  inference(cnf_transformation,[],[f21])).
+fof(f21,plain,(
+  ! [X0] : concat(one,X0) = X0),
+  inference(rectify,[],[f6])).
+fof(f6,axiom,(
+  ! [X2] : concat(one,X2) = X2),
+  file('kozens-equational-to-our-8.p',axiom_5)).
+fof(f27,plain,(
+  concat(concat(one,sK1),union(one,sK0)) != union(concat(sK1,sK0),sK1)),
+  inference(cnf_transformation,[],[f26])).
+fof(f26,plain,(
+  ? [X0,X1] : concat(concat(one,X1),union(one,X0)) != union(concat(X1,X0),X1)),
+  inference(ennf_transformation,[],[f16])).
+fof(f16,plain,(
+  ~! [X0,X1] : concat(concat(one,X1),union(one,X0)) = union(concat(X1,X0),X1)),
+  inference(rectify,[],[f15])).
+fof(f15,negated_conjecture,(
+  ~! [X1,X2] : concat(concat(one,X2),union(one,X1)) = union(concat(X2,X1),X2)),
+  inference(negated_conjecture,[],[f14])).
+fof(f14,conjecture,(
+  ! [X1,X2] : concat(concat(one,X2),union(one,X1)) = union(concat(X2,X1),X2)),
+  file('kozens-equational-to-our-8.p',goal)).
+fof(f58,plain,(
+  spl2_4),
+  inference(avatar_split_clause,[],[f31,f56])).
+fof(f31,plain,(
+  ( ! [X0] : (concat(X0,one) = X0) )),
+  inference(cnf_transformation,[],[f20])).
+fof(f20,plain,(
+  ! [X0] : concat(X0,one) = X0),
+  inference(rectify,[],[f7])).
+fof(f7,axiom,(
+  ! [X2] : concat(X2,one) = X2),
+  file('kozens-equational-to-our-8.p',axiom_6)).
+% SZS output end Proof for kozens-equational-to-our-8
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5628
+% Time elapsed: 0.005 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.03 s

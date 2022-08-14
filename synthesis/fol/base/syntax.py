@@ -37,7 +37,10 @@ class Term(BaseAST, Template["Term"], Interpretable["Term"], ABC):
     def get_sort(self) -> Sort:
         raise NotImplementedError()
 
-    def strip_smt_hook(self) -> Language:
+    def strip_smt_hook(self) -> Term:
+        raise NotImplementedError()
+
+    def is_in_language(self, language: Language) -> bool:
         raise NotImplementedError()
 
     def __lt__(self, other: Any) -> bool:
@@ -61,6 +64,9 @@ class Formula(BaseAST, Template["Formula"], Interpretable["Formula"], ABC):
     def strip_universal_quantifiers(self) -> Formula:
         return self
 
+    def is_in_language(self, language: Language) -> bool:
+        raise NotImplementedError()
+
     def is_qfree(self) -> bool:
         raise NotImplementedError()
 
@@ -79,6 +85,9 @@ class Variable(Term):
 
     def strip_smt_hook(self) -> Variable:
         return Variable(self.name, self.sort.strip_smt_hook())
+
+    def is_in_language(self, language: Language) -> bool:
+        return self.sort in language.sorts
 
     def __str__(self) -> str:
         return f"{self.name}:{self.sort}"
@@ -119,6 +128,16 @@ class Application(Term):
             self.function_symbol.strip_smt_hook(),
             tuple(argument.strip_smt_hook() for argument in self.arguments),
         )
+
+    def is_in_language(self, language: Language) -> bool:
+        if self.function_symbol not in language.function_symbols:
+            return False
+
+        for argument in self.arguments:
+            if not argument.is_in_language(language):
+                return False
+        
+        return True
 
     def __str__(self) -> str:
         argument_string = ", ".join((str(arg) for arg in self.arguments))
@@ -260,6 +279,10 @@ class RelationApplication(Formula):
 class Equality(Formula):
     left: Term
     right: Term
+
+    def is_in_language(self, language: Language) -> bool:
+        return self.left.is_in_language(language) and \
+               self.right.is_in_language(language)
 
     def __str__(self) -> str:
         return f"{self.left} = {self.right}"

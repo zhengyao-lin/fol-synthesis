@@ -1,0 +1,41 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on ours-to-kozen-8
+% Refutation found. Thanks to Tanya!
+% SZS status Theorem for ours-to-kozen-8
+% SZS output start Proof for ours-to-kozen-8
+fof(f46,plain,(
+  $false),
+  inference(subsumption_resolution,[],[f26,f40])).
+fof(f40,plain,(
+  ( ! [X2,X0,X1] : (union(concat(X0,X1),concat(X2,X1)) = concat(union(X0,X2),X1)) )),
+  inference(cnf_transformation,[],[f23])).
+fof(f23,plain,(
+  ! [X0,X1,X2] : union(concat(X0,X1),concat(X2,X1)) = concat(union(X0,X2),X1)),
+  inference(rectify,[],[f15])).
+fof(f15,axiom,(
+  ! [X2,X0,X1] : union(concat(X2,X0),concat(X1,X0)) = concat(union(X2,X1),X0)),
+  file('ours-to-kozen-8.p',axiom_14)).
+fof(f26,plain,(
+  union(concat(sK2,sK0),concat(sK1,sK0)) != concat(union(sK2,sK1),sK0)),
+  inference(cnf_transformation,[],[f25])).
+fof(f25,plain,(
+  ? [X0,X1,X2] : union(concat(X2,X0),concat(X1,X0)) != concat(union(X2,X1),X0)),
+  inference(ennf_transformation,[],[f18])).
+fof(f18,plain,(
+  ~! [X0,X1,X2] : union(concat(X2,X0),concat(X1,X0)) = concat(union(X2,X1),X0)),
+  inference(rectify,[],[f17])).
+fof(f17,negated_conjecture,(
+  ~! [X2,X0,X1] : concat(union(X1,X0),X2) = union(concat(X1,X2),concat(X0,X2))),
+  inference(negated_conjecture,[],[f16])).
+fof(f16,conjecture,(
+  ! [X2,X0,X1] : concat(union(X1,X0),X2) = union(concat(X1,X2),concat(X0,X2))),
+  file('ours-to-kozen-8.p',goal)).
+% SZS output end Proof for ours-to-kozen-8
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Refutation
+
+% Memory used [KB]: 5373
+% Time elapsed: 0.002 s
+% ------------------------------
+% ------------------------------
+% Success in time 0.098 s

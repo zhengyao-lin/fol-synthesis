@@ -1,0 +1,77 @@
+% ott+11_3_aac=none:afr=on:afp=4000:afq=1.4:amm=off:anc=all:bs=unit_only:bsr=on:bce=on:fde=unused:irw=on:nm=64:newcnf=on:nwc=1:nicw=on:sac=on:sp=reverse_arity:uhcvi=on_31 on kozens-equational-to-our-5
+% Time limit reached!
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Time limit
+% Termination phase: Saturation
+
+% Memory used [KB]: 260592
+% Time elapsed: 4.200 s
+% ------------------------------
+% ------------------------------
+% fmb+10_1_av=off:fmbsr=1.6:lma=on:nm=64:nwc=3:sp=reverse_arity:urr=on_258 on kozens-equational-to-our-5
+TRYING [1]
+TRYING [2]
+TRYING [3]
+Finite Model Found!
+% SZS status CounterSatisfiable for kozens-equational-to-our-5
+% SZS output start FiniteModel for kozens-equational-to-our-5
+tff(declare_$i,type,$i:$tType).
+tff(declare_$i1,type,zero:$i).
+tff(declare_$i2,type,one:$i).
+tff(declare_$i3,type,fmb_$i_3:$i).
+tff(finite_domain,axiom,
+      ! [X:$i] : (
+         X = zero | X = one | X = fmb_$i_3
+      ) ).
+
+tff(distinct_domain,axiom,
+         zero != one & zero != fmb_$i_3 & one != fmb_$i_3
+).
+
+tff(declare_union,type,union: $i * $i > $i).
+tff(function_union,axiom,
+           union(zero,zero) = zero
+         & union(zero,one) = one
+         & union(zero,fmb_$i_3) = fmb_$i_3
+         & union(one,zero) = one
+         & union(one,one) = one
+         & union(one,fmb_$i_3) = fmb_$i_3
+         & union(fmb_$i_3,zero) = fmb_$i_3
+         & union(fmb_$i_3,one) = fmb_$i_3
+         & union(fmb_$i_3,fmb_$i_3) = fmb_$i_3
+
+).
+
+tff(declare_concat,type,concat: $i * $i > $i).
+tff(function_concat,axiom,
+           concat(zero,zero) = zero
+         & concat(zero,one) = zero
+         & concat(zero,fmb_$i_3) = zero
+         & concat(one,zero) = zero
+         & concat(one,one) = one
+         & concat(one,fmb_$i_3) = fmb_$i_3
+         & concat(fmb_$i_3,zero) = zero
+         & concat(fmb_$i_3,one) = fmb_$i_3
+         & concat(fmb_$i_3,fmb_$i_3) = fmb_$i_3
+
+).
+
+tff(declare_closure,type,closure: $i > $i).
+tff(function_closure,axiom,
+           closure(zero) = one
+         & closure(one) = fmb_$i_3
+         & closure(fmb_$i_3) = fmb_$i_3
+
+).
+
+% SZS output end FiniteModel for kozens-equational-to-our-5
+% ------------------------------
+% Version: Vampire 4.5.1 (commit 57a6f78c on 2020-07-15 11:59:04 +0200)
+% Termination reason: Satisfiable
+
+% Memory used [KB]: 6396
+% Time elapsed: 0.005 s
+% ------------------------------
+% ------------------------------
+% Success in time 4.284 s

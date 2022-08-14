@@ -194,13 +194,15 @@ class TermTemplate(Term):
             if depth == 0:
                 for free_var in self.free_vars:
                     add_term(free_var.sort, 0, free_var)
-                    yield free_var.sort, free_var
+                    if self.sort is None or free_var.sort == self.sort:
+                        yield free_var.sort, free_var
 
                 for symbol in self.language.function_symbols:
                     if len(symbol.input_sorts) == 0:
                         term = Application(symbol, ())
                         add_term(symbol.output_sort, 0, term)
-                        yield symbol.output_sort, term
+                        if self.sort is None or symbol.output_sort == self.sort:
+                            yield symbol.output_sort, term
 
             else:
                 for symbol in self.language.function_symbols:
@@ -224,7 +226,8 @@ class TermTemplate(Term):
                         for subterms in itertools.product(*subterm_lists):
                             term = Application(symbol, subterms)
                             add_term(symbol.output_sort, depth, term)
-                            yield symbol.output_sort, term
+                            if self.sort is None or symbol.output_sort == self.sort:
+                                yield symbol.output_sort, term
 
 
 class AtomicFormulaTemplate(Formula):

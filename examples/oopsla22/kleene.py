@@ -279,6 +279,7 @@ def synthesize_equations_from_partial_model(
     term_depth: int,
     partial_structure: FinitePartialStructure,
     instantiation_depth: int = 1,
+    use_enumeration: bool = False,
     initial_axioms: Iterable[Equality] = (),
     solver_seed: int = 0,
     stopwatch: Stopwatch = Stopwatch(),
@@ -286,32 +287,36 @@ def synthesize_equations_from_partial_model(
     constants = tuple(language.get_function_symbol(name) for name in constant_names)
     new_axioms: List[Equality] = []
 
-    try:
-        with smt.Solver(name="z3", random_seed=solver_seed) as synthesis_solver:
-            left_term_template = TermTemplate(language, (), term_depth, sort=primary_sort)
+    with smt.Solver(name="z3", random_seed=solver_seed) as synthesis_solver:
+        left_term_template = TermTemplate(language, (), term_depth, sort=primary_sort)
+        if not use_enumeration:
             synthesis_solver.add_assertion(left_term_template.get_constraint())
 
-            right_term_template = TermTemplate(language, (), term_depth, sort=primary_sort)
+        right_term_template = TermTemplate(language, (), term_depth, sort=primary_sort)
+        if not use_enumeration:
             synthesis_solver.add_assertion(right_term_template.get_constraint())
 
-            # trivial_model is used for independence constraints
-            trivial_model = UninterpretedStructureTemplate(language)
+        # trivial_model is used for independence constraints
+        trivial_model = UninterpretedStructureTemplate(language)
+        if not use_enumeration:
             synthesis_solver.add_assertion(trivial_model.get_constraint())
 
-            # the axiom should not be trivially true
+        # the axiom should not be trivially true
+        if not use_enumeration:
             synthesis_solver.add_assertion(smt.Not(smt.Equals(
                 left_term_template.interpret(trivial_model, {}),
                 right_term_template.interpret(trivial_model, {}),
             )))
 
-            # precompute all terms needed for instantiation
-            instantiation_terms = tuple(
-                term for _, term in
-                TermTemplate(language, (), instantiation_depth, sort=primary_sort).enumerate()
-            )
-            # instantiation_terms = tuple(partial_structure.data.index_to_term[primary_sort])
+        # precompute all terms needed for instantiation
+        instantiation_terms = tuple(
+            term for _, term in
+            TermTemplate(language, (), instantiation_depth, sort=primary_sort).enumerate()
+        )
+        # instantiation_terms = tuple(partial_structure.data.index_to_term[primary_sort])
 
-            # term_template is true on partial_structure (and not undefined)
+        # term_template is true on partial_structure (and not undefined)
+        if not use_enumeration:
             left_term_template_interp = left_term_template.interpret(partial_structure, {})
             right_term_template_interp = right_term_template.interpret(partial_structure, {})
             synthesis_solver.add_assertion(smt.And(
@@ -323,24 +328,62 @@ def synthesize_equations_from_partial_model(
                 smt.Equals(right_term_template_interp, left_term_template_interp),
             ))
 
-            axioms_to_add: List[Equality] = list(initial_axioms)
+        axioms_to_add: List[Equality] = list(initial_axioms)
 
-            print(f"term instantiation size {len(instantiation_terms)}")
+        print(f"term instantiation size {len(instantiation_terms)}")
 
-            while True:
-                # instantiate new and existing axioms on all possible terms in term_template
-                # which adds constraints for independence
-                for axiom in axioms_to_add:
-                    free_vars = tuple(axiom.get_free_variables())
+        def term_generator() -> Generator[Tuple[Term, Term], None, None]:
+            for _, term1 in left_term_template.enumerate():
+                for _, term2 in right_term_template.enumerate():
+                    yield term1, term2
 
-                    # print(f"adding {axiom} for independence")
+        generator = term_generator()
 
-                    # NOTE: here we are assuming an unsorted scenario
-                    for instantiation in itertools.product(instantiation_terms, repeat=len(free_vars)):
-                        instantiated_axiom = axiom.substitute(dict(zip(free_vars, instantiation)))
-                        synthesis_solver.add_assertion(instantiated_axiom.interpret(trivial_model, {}))
-                axioms_to_add = []
+        while True:
+            # instantiate new and existing axioms on all possible terms in term_template
+            # which adds constraints for independence
+            for axiom in axioms_to_add:
+                free_vars = tuple(axiom.get_free_variables())
 
+                # print(f"adding {axiom} for independence")
+
+                # NOTE: here we are assuming an unsorted scenario
+                for instantiation in itertools.product(instantiation_terms, repeat=len(free_vars)):
+                    instantiated_axiom = axiom.substitute(dict(zip(free_vars, instantiation)))
+                    synthesis_solver.add_assertion(instantiated_axiom.interpret(trivial_model, {}))
+            axioms_to_add = []
+
+            if use_enumeration:
+                try:
+                    left_term, right_term = next(generator)
+
+                    with smt.push_solver(synthesis_solver):
+                        # check for independence and truth on the partial model
+                        left_term_interp = left_term.interpret(partial_structure, {})
+                        right_term_interp = right_term.interpret(partial_structure, {})
+                        synthesis_solver.add_assertion(smt.And(
+                            # the left term is not undefined
+                            smt.Not(smt.Equals(left_term_interp, partial_structure.data.get_undefined_value(primary_sort))),
+                            # no need to say that the right term is not undefined
+
+                            # and they are equal
+                            smt.Equals(left_term_interp, right_term_interp),
+                        ))
+
+                        synthesis_solver.add_assertion(smt.Not(smt.Equals(
+                            left_term.interpret(trivial_model, {}),
+                            right_term.interpret(trivial_model, {}),
+                        )))
+
+                        if not synthesis_solver.solve():
+                            # dependent or unsound
+                            print(f"\33[2K\rdiscarded axiom {left_term} = {right_term}", end="", flush=True)
+                            continue
+
+                except StopIteration:
+                    break
+
+            else:
                 if not synthesis_solver.solve():
                     # no more equalities can be found
                     break
@@ -349,17 +392,15 @@ def synthesize_equations_from_partial_model(
                 left_term = left_term_template.get_from_smt_model(model)
                 right_term = right_term_template.get_from_smt_model(model)
 
-                # replace constant symbols representing variables in the partial model
-                left_term = replace_constants_with_variables(left_term, constants)
-                right_term = replace_constants_with_variables(right_term, constants)
-                axiom = Equality(left_term, right_term)
+            # replace constant symbols representing variables in the partial model
+            left_term = replace_constants_with_variables(left_term, constants)
+            right_term = replace_constants_with_variables(right_term, constants)
+            axiom = Equality(left_term, right_term)
 
-                print(f"found axiom {axiom}")
+            print(f"\33[2K\rfound axiom {axiom}")
 
-                axioms_to_add.append(axiom)
-                new_axioms.append(axiom)
-    except KeyboardInterrupt:
-        print("synthesis interrupted")
+            axioms_to_add.append(axiom)
+            new_axioms.append(axiom)
 
     return new_axioms
 
@@ -721,6 +762,7 @@ def try_load_pickle(path: str) -> Any:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--cache", default=None, help="cache directory")
+    parser.add_argument("--enumeration", action="store_true", default=False, help="use an enumerative synthesizer")
     parser.add_argument("--vampire", default="vampire", help="path to the Vampire binary")
     parser.add_argument("--vampire-timeout", type=int, default=300, help="timeout for pruning using Vampire, in seconds")
     parser.add_argument("--vampire-pruning", action="store_true", default=False, help="use Vampire for pruning")
@@ -780,7 +822,7 @@ def main():
 
     full_language = re_model.language.strip_smt_hook()
 
-    c2d1_language = full_language.get_sublanguage(
+    c2d1_language = re_model.language.get_sublanguage(
         ("KA",),
         ("a", "b", "zero", "one", "union", "concat", "closure"),
         (),
@@ -788,7 +830,7 @@ def main():
 
     c2d2_language = c2d1_language
 
-    c3d2_language = full_language.get_sublanguage(
+    c3d2_language = re_model.language.get_sublanguage(
         ("KA",),
         ("a", "b", "c", "union", "concat", "closure"),
         (),
@@ -879,12 +921,13 @@ def main():
 
         with stopwatch.time(f"synthesis-{pass_name}", clear=True):
             new_axioms = synthesize_equations_from_partial_model(
-                language=partial_model.language,
+                language=partial_model.language.strip_smt_hook(),
                 primary_sort=ka_sort,
                 constant_names=free_vars,
                 term_depth=term_depth,
                 partial_structure=partial_model,
                 instantiation_depth=1,
+                use_enumeration=args.enumeration,
                 # only use axioms that are in the target language
                 initial_axioms=tuple(axiom for axiom in axioms if axiom.is_in_language(partial_model.language)),
                 stopwatch=stopwatch,

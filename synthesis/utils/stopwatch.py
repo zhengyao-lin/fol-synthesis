@@ -36,7 +36,7 @@ class Stopwatch:
 
     def start(self, name: str, clear: bool = False) -> None:
         assert name not in self.start_time, f"starting component {name} multiple times"
-        self.start_time[name] = time.time()
+        self.start_time[name] = time.process_time()
 
         if clear and name in self.total_elapsed:
             del self.total_elapsed[name]
@@ -48,7 +48,7 @@ class Stopwatch:
 
         assert name in self.start_time, f"component {name} has not started"
 
-        elapsed = time.time() - self.start_time[name]
+        elapsed = time.process_time() - self.start_time[name]
         
         self.total_elapsed[name] = self.total_elapsed.get(name, 0.0) + elapsed
         del self.start_time[name]
@@ -71,7 +71,7 @@ class Stopwatch:
         base = self.total_elapsed.get(name, 0.0)
 
         if name in self.start_time:
-            return time.time() - self.start_time[name] + base
+            return time.process_time() - self.start_time[name] + base
 
         return base
 

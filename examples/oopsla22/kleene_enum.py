@@ -182,7 +182,7 @@ def main():
     )
 
     c2d2_equalities = find_axioms(
-        c2d2_language, ka_sort, re_model, 1, 1,
+        c2d2_language, ka_sort, re_model, 2, 2,
         (Variable("a", ka_sort), Variable("b", ka_sort)),
         (
             re_model.language.get_function_symbol("a"),
@@ -191,6 +191,7 @@ def main():
         (),
         vampire_binary=args.vampire,
     )
+    
     final_axioms = find_axioms(
         c3d2_language, ka_sort, re_model, 2, 2,
         (Variable("a", ka_sort), Variable("b", ka_sort), Variable("c", ka_sort)),

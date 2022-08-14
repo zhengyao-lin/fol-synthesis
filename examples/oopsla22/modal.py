@@ -311,6 +311,11 @@ def find_axioms_for_theory(
         stopwatch=stopwatch,
         # use_negative_examples=True,
     ):
+        if args.synthesis_timeout is not None and \
+           stopwatch.get("synthesis-total") > args.synthesis_timeout:
+            print("timeout")
+            break
+
         synthesized_axioms.append(SynthesizedFormula(
             formula=formula,
             result=formula_type,
@@ -319,6 +324,24 @@ def find_axioms_for_theory(
 
         if formula_type == modal.FormulaResultType.GOOD:
             print(formula)
+            
+            # if args.active_completeness:
+            #     as_one_axiom = synthesized_axioms[0].formula
+            #     for axiom in synthesized_axioms[1:][::-1]:
+            #         as_one_axiom = modal.Conjunction(as_one_axiom, axiom.formula)
+            #     try:
+            #         with stopwatch.time("completeness"):
+            #             complete = synthesizer.check_completeness(
+            #                 goal_theory,
+            #                 as_one_axiom,
+            #                 blob_depth=0,
+            #                 timeout=args.completeness_timeout,
+            #             )
+            #     except:
+            #         complete = False
+            #     else:
+            #         pass
+            #     if 
 
     stopwatch.end("synthesis-total")
 
@@ -631,14 +654,14 @@ def output_timing_graph(args: argparse.Namespace, results: Tuple[Result, ...]) -
 
     marker_map: Dict[modal.FormulaResultType, Mapping[str, str]] = {
         modal.FormulaResultType.GOOD: { "marker": "o", "color": "green", "markersize": 7 },
-        modal.FormulaResultType.COUNTEREXAMPLE: { "marker": 2, "color": "red", "markersize": 7 },
-        modal.FormulaResultType.UNSOUND: { "marker": 2, "color": "red", "markersize": 7 },
-        modal.FormulaResultType.DEPENDENT: { "marker": 3, "color": "blue", "markersize": 7 },
-        modal.FormulaResultType.PRUNED: { "marker": 3, "color": "blue", "markersize": 7 },
+        modal.FormulaResultType.COUNTEREXAMPLE: { "marker": 6, "color": "red", "markersize": 7 },
+        modal.FormulaResultType.UNSOUND: { "marker": 6, "color": "red", "markersize": 7 },
+        modal.FormulaResultType.DEPENDENT: { "marker": 7, "color": "blue", "markersize": 7 },
+        modal.FormulaResultType.PRUNED: { "marker": 7, "color": "blue", "markersize": 7 },
     }
 
     point_label: Dict[modal.FormulaResultType, str] = {
-        modal.FormulaResultType.GOOD: "Good",
+        modal.FormulaResultType.GOOD: "Final",
         modal.FormulaResultType.COUNTEREXAMPLE: "Unsound",
         modal.FormulaResultType.UNSOUND: "Unsound",
         modal.FormulaResultType.DEPENDENT: "Dependent",
@@ -749,6 +772,8 @@ def main() -> None:
     parser_synthesize.add_argument("--use-enumeration", action="store_true", default=False, help="use an enumerative synthesizer")
     parser_synthesize.add_argument("--separate-independence", action="store_true", default=False, help="separate independence check from the synthesis query")
     parser_synthesize.add_argument("--disable-counterexamples", action="store_true", default=False, help="disable the use of counterexamples (i.e. do enumeration)")
+    parser_synthesize.add_argument("--synthesis-timeout", type=int, default=None, help="synthesis timeout in seconds")
+    # parser_synthesize.add_argument("--active-completeness", action="store_true", default=False, help="run completeness check every time a new axiom is found")
 
     # Render results in LaTeX
     parser_show = subparsers.add_parser("show", help="render the given results in LaTeX")

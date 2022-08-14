@@ -503,10 +503,10 @@ def encode_ka_term_in_latex(term: Term) -> str:
     elif term.function_symbol.name == "concat":
         left = encode_subterm(term.arguments[0])
         right = encode_subterm(term.arguments[1])
-        return f"{left}{right}"
+        return f"{left} {right}"
 
     elif term.function_symbol.name == "closure":
-        return f"{encode_subterm(term.arguments[0])}^*"
+        return f"{encode_subterm(term.arguments[0])}^\\kstar"
 
     assert False, f"unknown term {term}"
 

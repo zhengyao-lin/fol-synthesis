@@ -3,6 +3,7 @@ import argparse
 import subprocess
 
 from synthesis import *
+from .kleene import compare_with_kozens
 
 
 def print_equation_in_tptp(equation: Formula):
@@ -49,11 +50,6 @@ def check_equation_implication(
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-
-    # if exit_code != 0:
-    #     raise Exception(f"vampire failed with {exit_code}")
-
-    # print(stdout.decode())
 
     return b"Termination reason: Refutation\n" in proc.stdout.read()
 
@@ -118,7 +114,7 @@ def find_axioms(
                     time_elapsed = time.time() - start
                     print(f"\33[2K\r[{num_tried} / {total_num_equalities}], {round(time_elapsed, 2)}s spent, total est {round(total_num_equalities / (num_tried / time_elapsed), 2)}s", end="", flush=True)
 
-                with smt.push_solver(solver):
+                with smt.push_solver(solver, clear_formula_manager=True):
                     solver.add_assertion(smt.Not(smt.Equals(
                         lhs.interpret(canonical_structure, free_var_map_to_constants),
                         rhs.interpret(canonical_structure, free_var_map_to_constants)
@@ -150,6 +146,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--vampire", default="vampire", help="path to the vampire binary")
     args = parser.parse_args()
+
+    ka_theory = Parser.parse_theory(r"""
+    theory KLEENE-ALGEBRA
+        sort KA
+        // relation eq: KA KA [smt("(= #1 #2)")]
+
+        constant zero: KA
+        constant one: KA
+        function union: KA KA -> KA
+        function concat: KA KA -> KA
+        function closure: KA -> KA
+    end
+    """)
 
     re_model = FOModelTemplate(Parser.parse_theory(r"""
     theory REGULAR-LANGUAGE
@@ -207,6 +216,12 @@ def main():
     print("final axioms:")
     for axiom in final_axioms:
         print(axiom)
+
+    compare_with_kozens(
+        ka_theory.language,
+        final_axioms,
+        vampire_binary=args.vampire,
+    )
 
 
 if __name__ == "__main__":

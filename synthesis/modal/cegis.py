@@ -443,7 +443,7 @@ class ModalSynthesizer:
                                 with stopwatch.time("synthesis"):
                                     while True:
                                         candidate = next(enumerator)
-                                        enumerator_count += 1
+                                        # enumerator_count += 1
                                         # print(f"\33[2K\r[enumerated {enumerator_count}]", end="")
                                         print(candidate, end="", flush=True, file=self.output)
 
@@ -493,18 +493,14 @@ class ModalSynthesizer:
                             # i.e. whether there is a small model where
                             # all of true_formulas hold but the candidate
                             # does not hold
-                            with smt.push_solver(solver_independence):
+                            with smt.push_solver(solver_independence, clear_formula_manager=use_enumeration):
                                 with stopwatch.time("encoding"):
                                     solver_independence.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, trivial_model, atom_symbols)))
 
                                 with stopwatch.time("independence"):
                                     solver_result = solver_independence.solve()
 
-                                if solver_result:
-                                    # found witness to independence, continue
-                                    pass
-
-                                else:
+                                if not solver_result:
                                     # no witness found
                                     # NOTE: in this case, the axiom may still be independent
                                     print(" ... ✘ (no independence witness found)", file=self.output)
@@ -514,7 +510,7 @@ class ModalSynthesizer:
                                     yield candidate, FormulaResultType.DEPENDENT
                                     continue
 
-                        with smt.push_solver(solver_counterexample):
+                        with smt.push_solver(solver_counterexample, clear_formula_manager=use_enumeration):
                             # try to find a frame in which the candidate does not hold on all worlds
                             with stopwatch.time("encoding"):
                                 solver_counterexample.add_assertion(smt.Not(self.interpret_on_fo_structure(candidate, goal_model, atom_symbols)))

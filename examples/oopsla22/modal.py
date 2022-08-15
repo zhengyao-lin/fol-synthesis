@@ -2,6 +2,7 @@ from typing import Iterable, Generator, Dict, Tuple, Optional
 from dataclasses import dataclass
 
 import os
+import gc
 import sys
 import time
 import pickle
@@ -284,6 +285,9 @@ def find_axioms_for_theory(
 
     stopwatch.start("synthesis-total")
 
+    # from pympler.tracker import SummaryTracker
+    # tracker = SummaryTracker()
+
     for formula, formula_type in synthesizer.synthesize(
         templates,
         theory_map["FRAME"],
@@ -328,6 +332,10 @@ def find_axioms_for_theory(
             #     else:
             #         pass
             #     if 
+    
+    # from guppy import hpy; h=hpy()
+    # print(h.heap())
+    # tracker.print_diff()
 
     stopwatch.end("synthesis-total")
 

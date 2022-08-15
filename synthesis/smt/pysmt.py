@@ -18,7 +18,7 @@ from pysmt.smtlib.parser import SmtLibParser # type: ignore
 from pysmt.oracles import QuantifierOracle # type: ignore
 
 from pysmt.shortcuts import Function as Apply
-from pysmt.shortcuts import reset_env
+from pysmt.shortcuts import get_env, reset_env
 
 import io
 
@@ -57,12 +57,40 @@ def FreshSort() -> SMTSort:
 
 
 @contextmanager
-def push_solver(solver: Solver) -> Generator[None, None, None]:
+def push_solver(solver: Solver, clear_formula_manager: bool = False) -> Generator[None, None, None]:
+    if clear_formula_manager:
+        # NOTE: PySMT keeps track of all formulae every created
+        # in a formula manager. This might create memory leaks
+        # in certain use patterns.
+
+        env = get_env()
+
+        old_disable_memoization = env.disable_memoization
+        env.disable_memoization = True
+
+        old_formulae = dict(env.formula_manager.formulae)
+        old_symbols = dict(env.formula_manager.symbols)
+        old_int_constants = dict(env.formula_manager.int_constants)
+        old_real_constants = dict(env.formula_manager.real_constants)
+        old_string_constants = dict(env.formula_manager.string_constants)
+
     try:
         solver.push()
         yield
     finally:
         solver.pop()
+
+        if clear_formula_manager:
+            env.disable_memoization = old_disable_memoization
+            env.formula_manager.formulae.clear()
+            env.formula_manager.symbols.clear()
+            env.formula_manager.int_constants.clear()
+
+            env.formula_manager.formulae = old_formulae
+            env.formula_manager.symbols = old_symbols
+            env.formula_manager.int_constants = old_int_constants
+            env.formula_manager.real_constants = old_real_constants
+            env.formula_manager.string_constants = old_string_constants
 
 
 def is_qfree(formula: SMTTerm) -> bool:

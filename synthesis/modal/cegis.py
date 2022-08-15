@@ -444,7 +444,7 @@ class ModalSynthesizer:
                                     while True:
                                         candidate = next(enumerator)
                                         enumerator_count += 1
-                                        print(f"\r[enumerated {enumerator_count}]", end="")
+                                        # print(f"\33[2K\r[enumerated {enumerator_count}]", end="")
                                         print(candidate, end="", flush=True, file=self.output)
 
                                         # check whether the candidate holds on positive and negative examples
@@ -480,7 +480,7 @@ class ModalSynthesizer:
                                 # candidate = candidate.simplify()
 
                             print(candidate, end="", flush=True, file=self.output)
-                        
+
                         # new negative example
                         if not separate_independence:
                             if use_negative_examples:

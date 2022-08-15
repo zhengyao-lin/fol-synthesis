@@ -11,21 +11,6 @@ import itertools
 import traceback
 import multiprocessing
 
-import matplotlib
-
-matplotlib.rcParams.update({
-    "font.size": 22,
-    "text.usetex": True,
-    "text.latex.preamble": [
-        r"""
-        \usepackage[libertine]{newtxmath}
-        \usepackage{libertine}
-        """
-    ],
-})
-
-import matplotlib.pyplot as plot
-
 from synthesis import *
 from synthesis import modal
 from synthesis.utils.stopwatch import Stopwatch
@@ -632,7 +617,7 @@ def output_summary(results: Tuple[Result, ...]) -> None:
     for result in results:
         print(f"{result.theory_name} theory:")
         for axiom in result.synthesized_axioms:
-            print(f"  {axiom.formula} (i.e. {axiom.formula.simplify()}): {axiom.result}")
+            print(f"  {axiom.formula} (i.e. {axiom.formula.simplify()}): {axiom.result}, synthesized at {axiom.time}s")
 
         print(f"  completeness check: {'passed' if result.complete else 'failed'}")
 
@@ -641,6 +626,21 @@ def output_summary(results: Tuple[Result, ...]) -> None:
 
 
 def output_timing_graph(args: argparse.Namespace, results: Tuple[Result, ...]) -> None:
+    import matplotlib
+
+    matplotlib.rcParams.update({
+        "font.size": 22,
+        "text.usetex": True,
+        "text.latex.preamble": [
+            r"""
+            \usepackage[libertine]{newtxmath}
+            \usepackage{libertine}
+            """
+        ],
+    })
+
+    import matplotlib.pyplot as plot
+
     result_map: Dict[str, Result] = { result.theory_name: result for result in results }
 
     # theory_names = tuple(map(lambda t: f"{t[1].display_name + ' ' if t[1].display_name is not None else ''}{t[1].acronym}", modal_logic_info))
@@ -717,8 +717,10 @@ def command_show(args: argparse.Namespace) -> None:
         results = pickle.load(save_file)
 
     output_latex_table(results)
-    # output_summary(results)
-    output_timing_graph(args, results)
+    output_summary(results)
+
+    if not args.disable_plot:
+        output_timing_graph(args, results)
 
 
 def command_diff(args: argparse.Namespace) -> None:
@@ -780,6 +782,7 @@ def main() -> None:
     parser_show = subparsers.add_parser("show", help="render the given results in LaTeX")
     parser_show.add_argument("saved", help="saved (partial) result file")
     parser_show.add_argument("--save-plot", type=str, default=None, help="save path of the plot")
+    parser_show.add_argument("--disable-plot", action="store_true", default=True, help="do not plot anything")
 
     # Compare difference in two results
     parser_diff = subparsers.add_parser("diff", help="Show the difference between two runs")

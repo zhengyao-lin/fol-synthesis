@@ -508,8 +508,9 @@ class ModalSynthesizer:
                                     # no witness found
                                     # NOTE: in this case, the axiom may still be independent
                                     print(" ... ✘ (no independence witness found)", file=self.output)
-                                    excluded_formulas.append(candidate)
-                                    new_excluded_formulas.append(candidate)
+                                    if not use_enumeration:
+                                        excluded_formulas.append(candidate)
+                                        new_excluded_formulas.append(candidate)
                                     yield candidate, FormulaResultType.DEPENDENT
                                     continue
 
@@ -529,7 +530,7 @@ class ModalSynthesizer:
                                     positive_example = goal_model.get_from_smt_model(solver_counterexample.get_model())
                                     positive_examples.append(positive_example)
                                     new_positive_examples.append(positive_example)
-                                else:
+                                elif not use_enumeration:
                                     excluded_formulas.append(candidate)
                                     new_excluded_formulas.append(candidate)
 
@@ -541,8 +542,9 @@ class ModalSynthesizer:
                                     
                                     if not sound:
                                         print(" ... ✘ (unsound)", file=self.output)
-                                        excluded_formulas.append(candidate)
-                                        new_excluded_formulas.append(candidate)
+                                        if not use_enumeration:
+                                            excluded_formulas.append(candidate)
+                                            new_excluded_formulas.append(candidate)
                                         yield candidate, FormulaResultType.UNSOUND
                                         continue
 

@@ -301,11 +301,12 @@ def find_axioms_for_theory(
             print("timeout")
             break
 
-        synthesized_axioms.append(SynthesizedFormula(
-            formula=formula,
-            result=formula_type,
-            time=stopwatch.get("synthesis-total"),
-        ))
+        if not args.use_enumeration or formula_type == modal.FormulaResultType.GOOD:
+            synthesized_axioms.append(SynthesizedFormula(
+                formula=formula,
+                result=formula_type,
+                time=stopwatch.get("synthesis-total"),
+            ))
 
         if formula_type == modal.FormulaResultType.GOOD:
             print(formula)

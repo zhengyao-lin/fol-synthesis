@@ -377,6 +377,7 @@ def find_axioms_for_theory(
     # print(f"- pruning took: {stopwatch.get('pruning')}s")
 
     # check completeness
+    complete = False
     if len(indep_axioms) != 0:
         as_one_axiom = indep_axioms[0]
         for formula in indep_axioms[1:][::-1]:
@@ -392,7 +393,8 @@ def find_axioms_for_theory(
                 )
         except:
             # print("- completeness check exception")
-            complete = False
+            # complete = False
+            pass
         else:
             pass
             # if complete:

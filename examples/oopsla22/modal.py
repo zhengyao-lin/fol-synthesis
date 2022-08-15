@@ -513,9 +513,8 @@ def command_synthesize(args: argparse.Namespace) -> None:
     # start a process to write results to the save file
     multiprocessing.Process(target=write_result_job, args=(args, result_queue), daemon=True).start()
 
-    if args.logics is not None:
-        for logic in args.logics:
-            assert logic in theory_map, f"theory {logic} is not found"
+    for logic in args.logics:
+        assert logic in theory_map, f"theory {logic} is not found"
 
     with multiprocessing.Pool(processes=args.jobs) as pool:
         pool.starmap(
@@ -525,7 +524,7 @@ def command_synthesize(args: argparse.Namespace) -> None:
                 for name in theory_map
                 if name not in skip_theories and
                    name != "FRAME" and
-                   (args.logics is None or name in args.logics)
+                   (len(args.logics) == 0 or name in args.logics)
             ],
         )
 

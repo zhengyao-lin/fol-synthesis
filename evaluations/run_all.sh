@@ -3,7 +3,7 @@
 set -euf
 
 results_dir=eval_results
-vampire_path=vampire/vampire_z3_Release_static_master_4764
+vampire_path=$(realpath vampire/vampire_z3_Release_static_master_4764)
 
 modal_smt_results="$results_dir/modal-smt-results.pickle"
 modal_enum_results="$results_dir/modal-enum-results.pickle"
@@ -12,7 +12,7 @@ kleene_enum_results="$results_dir/kleene-enum"
 
 cat <<EOT
 You can interrupt this script and restart any time.
-It will resume from the previous saved point.
+It will resume from the previous save point.
 EOT
 
 # Uncomment the following line to set a synthesis timeout of 10800 seconds
@@ -28,7 +28,7 @@ run_and_time() {
             elapsed=$((now - start))
             elapsed=$(printf "%03d\n" $elapsed)
             echo -ne "\033[2K\r    Elapsed: ${elapsed:0:-2}.${elapsed: -2}s" >&2
-            sleep 0.01
+            sleep 0.07
         done
     }
 
@@ -97,9 +97,7 @@ if ! run_and_time python3 -m evaluations.modal synthesize \
     echo "Evaluation failed."
     exit 1
 fi
-cat <<EOT
-To show the results: python3 -m evaluations.modal show $modal_enum_results
-EOT
+echo "To show the results: $(bold python3 -m evaluations.modal show $modal_enum_results)"
 
 ################
 # Evaluation 3 #
@@ -114,9 +112,7 @@ if ! run_and_time python3 -m evaluations.kleene \
     echo "Evaluation failed."
     exit 1
 fi
-cat <<EOT
-To show the results: cat $results_dir/kleene-smt-stdout.txt
-EOT
+echo "To show the results: $(bold cat $results_dir/kleene-smt-stdout.txt)"
 
 ################
 # Evaluation 4 #
@@ -129,6 +125,4 @@ if ! run_and_time python3 -m evaluations.kleene_enum \
     echo "Evaluation failed."
     exit 1
 fi
-cat <<EOT
-To show the results: cat $results_dir/kleene-enum-stdout.txt
-EOT
+echo "To show the results: $(bold cat $results_dir/kleene-enum-stdout.txt)"

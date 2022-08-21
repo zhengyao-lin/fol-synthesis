@@ -151,7 +151,7 @@ class ModalSynthesizer:
         timeout <= 0 for no timeout
         """
         options = {}
-        if timeout >= 0:
+        if timeout > 0:
             options["timeout"] = timeout
 
         with smt.Solver(name="z3", random_seed=self.solver_seed, solver_options=options) as solver:

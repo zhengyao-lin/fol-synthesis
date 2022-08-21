@@ -1,3 +1,4 @@
+import contextlib
 from typing import Iterable, Generator, Dict, Tuple, Optional
 from dataclasses import dataclass
 
@@ -5,9 +6,12 @@ import os
 import gc
 import sys
 import time
+import errno
 import pickle
 import random
+import signal
 import argparse
+import functools
 import itertools
 import traceback
 import multiprocessing
@@ -15,6 +19,10 @@ import multiprocessing
 from synthesis import *
 from synthesis import modal
 from synthesis.utils.stopwatch import Stopwatch
+
+
+# Always flush
+print = (lambda print: lambda *args, **kwargs: print(*args, **kwargs, flush=True))(print)
 
 
 theory_map = Parser.parse_theories(r"""
@@ -246,6 +254,22 @@ class Result:
     stopwatch: Stopwatch
 
 
+class TimeoutError(Exception): ...
+
+@contextlib.contextmanager
+def timeout(seconds: int) -> Generator[None, None, None]:
+    def handle_timeout(signum, frame):
+        raise TimeoutError("timeout")
+
+    try:
+        signal.signal(signal.SIGALRM, handle_timeout)
+        signal.alarm(seconds)
+        yield
+        
+    finally:
+        signal.alarm(0)
+
+
 def find_axioms_for_theory(
     args: argparse.Namespace,
     atoms: Tuple[modal.Atom, ...],
@@ -364,6 +388,7 @@ def find_axioms_for_theory(
     # print(f"- pruning took: {stopwatch.get('pruning')}s")
 
     # check completeness
+    print(f"checking completeness for {theory_name}")
     complete = False
     if len(indep_axioms) != 0:
         as_one_axiom = indep_axioms[0]
@@ -372,22 +397,24 @@ def find_axioms_for_theory(
 
         try:
             with stopwatch.time("completeness"):
-                complete = synthesizer.check_completeness(
-                    goal_theory,
-                    as_one_axiom,
-                    blob_depth=0,
-                    timeout=args.completeness_timeout,
-                )
-        except:
-            # print("- completeness check exception")
-            # complete = False
-            pass
-        else:
-            pass
-            # if complete:
-            #     print(f"- completeness check passed, took: {stopwatch.get('completeness')}s")
-            # else:
-            #     print(f"- completeness check failed, took: {stopwatch.get('completeness')}s")
+                with timeout(args.completeness_timeout // 1000):
+                    complete = synthesizer.check_completeness(
+                        goal_theory,
+                        as_one_axiom,
+                        blob_depth=0,
+                        timeout=args.completeness_timeout,
+                    )
+        except: pass
+        # except:
+        #     # print("- completeness check exception")
+        #     # complete = False
+        #     pass
+        # else:
+        #     pass
+        #     # if complete:
+        #     #     print(f"- completeness check passed, took: {stopwatch.get('completeness')}s")
+        #     # else:
+        #     #     print(f"- completeness check failed, took: {stopwatch.get('completeness')}s")
 
     return Result(
         theory_name=theory_name,

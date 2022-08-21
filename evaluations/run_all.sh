@@ -2,19 +2,22 @@
 
 set -euf
 
-cat <<EOT
-Starting evaluations. You can interrupt this script and restart any time. It will resume from the previous saved point.
-EOT
-
-num_cores=$(nproc --all)
-
 results_dir=eval_results
+vampire_path=vampire/vampire_z3_Release_static_master_4764
+
 modal_smt_results="$results_dir/modal-smt-results.pickle"
 modal_enum_results="$results_dir/modal-enum-results.pickle"
+kleene_smt_results="$results_dir/kleene-smt"
+kleene_enum_results="$results_dir/kleene-enum"
+
+cat <<EOT
+You can interrupt this script and restart any time.
+It will resume from the previous saved point.
+EOT
 
 # Uncomment the following line to set a synthesis timeout of 10800 seconds
 # for evaluation 2
-# modal_enum_timeout=10800
+modal_enum_timeout=60
 
 # A utility function to time a command while it's running
 run_and_time() {
@@ -30,20 +33,23 @@ run_and_time() {
     }
 
     clear_timer() {
-        kill $1
-        wait $1 2>/dev/null
-
         now=$(date +%s%2N)
-        elapsed=$((now - $2))
+        elapsed=$((now - $1))
         elapsed=$(printf "%03d\n" $elapsed)
-        echo -ne "\033[2K\r    Took: ${elapsed:0:-2}.${elapsed: -2}s" >&2
+        echo -ne "\033[2K\r    Took: ${elapsed:0:-2}.${elapsed: -2}s\n" >&2
     }
     
     timer & timer_pid=$!
     start=$(date +%s%2N)
-    trap "clear_timer $timer_pid $start" RETURN
+    trap "kill $timer_pid; clear_timer $start" RETURN
     $@
 }
+
+bold() {
+    echo -ne "\033[1m$@\033[0m"
+}
+
+num_cores=$(nproc --all)
 
 if ! [ -d "$results_dir" ]; then
     mkdir $results_dir
@@ -57,11 +63,16 @@ echo "Evaluation 1. Synthesizing modal axioms for 17 modal logics (using constra
 echo "    Results are saved to $modal_smt_results."
 num_jobs=$((num_cores > 17 ? 17 : num_cores))
 echo "    Running with $num_jobs parallel jobs."
-run_and_time python3 -m evaluations.modal synthesize \
+if ! run_and_time python3 -m evaluations.modal synthesize \
     --continue \
     --save $modal_smt_results \
     -j $num_jobs \
-    1>$results_dir/modal-smt-stdout.txt
+    1>$results_dir/modal-smt-stdout.txt; then
+    echo "Evaluation failed."
+    exit 1
+fi
+
+echo -e "To show the results: $(bold python3 -m evaluations.modal show $modal_smt_results)"
 
 ################
 # Evaluation 2 #
@@ -74,7 +85,7 @@ echo "    Running with $num_jobs parallel jobs."
 if ! [ -z ${modal_enum_timeout+z} ]; then
     echo "    Synthesis timeout $modal_enum_timeout"
 fi
-run_and_time python3 -m evaluations.modal synthesize \
+if ! run_and_time python3 -m evaluations.modal synthesize \
     --continue \
     --save $modal_enum_results \
     -j $num_jobs \
@@ -82,4 +93,42 @@ run_and_time python3 -m evaluations.modal synthesize \
     --use-enumeration \
     --separate-independence \
     --disable-counterexamples \
-    1>$results_dir/modal-enum-stdout.txt
+    1>$results_dir/modal-enum-stdout.txt; then
+    echo "Evaluation failed."
+    exit 1
+fi
+cat <<EOT
+To show the results: python3 -m evaluations.modal show $modal_enum_results
+EOT
+
+################
+# Evaluation 3 #
+################
+echo
+echo "Evaluation 3. Synthesizing equational axioms for language structures (using constraint solving)."
+if ! run_and_time python3 -m evaluations.kleene \
+    --cache $kleene_smt_results \
+    --vampire $vampire_path \
+    --vampire-pruning \
+    1>$results_dir/kleene-smt-stdout.txt; then
+    echo "Evaluation failed."
+    exit 1
+fi
+cat <<EOT
+To show the results: cat $results_dir/kleene-smt-stdout.txt
+EOT
+
+################
+# Evaluation 4 #
+################
+echo
+echo "Evaluation 4. Synthesizing equational axioms for language structures (using naive enumeration)."
+if ! run_and_time python3 -m evaluations.kleene_enum \
+    --vampire $vampire_path \
+    1>$results_dir/kleene-enum-stdout.txt; then
+    echo "Evaluation failed."
+    exit 1
+fi
+cat <<EOT
+To show the results: cat $results_dir/kleene-enum-stdout.txt
+EOT

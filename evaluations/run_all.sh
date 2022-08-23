@@ -17,7 +17,7 @@ EOT
 
 # Uncomment the following line to set a synthesis timeout of 10800 seconds
 # for evaluation 2
-modal_enum_timeout=60
+modal_enum_timeout=900 # 15 minutes
 
 # A utility function to time a command while it's running
 run_and_time() {
@@ -71,7 +71,6 @@ if ! run_and_time python3 -m evaluations.modal synthesize \
     echo "Evaluation failed."
     exit 1
 fi
-
 echo -e "To show the results: $(bold python3 -m evaluations.modal show $modal_smt_results)"
 
 ################

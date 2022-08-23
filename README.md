@@ -1,74 +1,68 @@
 Synthesizing Axiomatizations with Logic Learning
 ---
 
-Quick start:
+Welcome! This document describes how to perform the evaluations in the OOPSLA 22 paper
+*Synthesizing Axiomatizations with Logic Learning*.
+
+In the following sections, we will first introduce how to set up the environment to
+run this artifact (Getting Started Guide), and then give instructions to run each
+of the experiements in the paper (Step-by-Step Instructions).
 
 
+## Getting Started Guide
 
-1. Install Python dependencies
-```
-python3 -m pip install -r requirements.txt
-```
+This artifact is packaged in a Docker image that can be found alongside this documentation with the name `image.tar.gz`.
+To load this image, first install Docker following the instructions at [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/).
+As another prerequisite, [`gzip`](https://www.gnu.org/software/gzip/) should also be installed in order to decompress the image.
 
-2. Download Vampire binary: [https://vprover.github.io/download.html](https://vprover.github.io/download.html)
-
-3. Synthesize modal axioms for 17 modal logics (with constraint solving)
+After these required software are installed, run the following command to load the Docker image:
 ```
-python3 -m evaluations.modal synthesize \
-    --continue \
-    --save modal-results-smt.pickle \
-    -j <parallel jobs>
+$ gunzip -c <path to image.tar.gz> | docker load
+Loaded image ID: <image ID>
 ```
 
-To show the results:
+Now run the image to start the artifact:
 ```
-python3 -m evaluations.modal show modal-results-smt.pickle
-```
-An option `--enable-plot` can be added to render a visualization of when each axiom is synthesized (requires LaTeX).
-
-4. Synthesize modal axioms for 17 modal logics (with naive enumeration)
-```
-python3 -m evaluations.modal synthesize \
-    --continue \
-    --save modal-results-enum.pickle \
-    -j <parallel jobs> \
-    --synthesis-timeout 10800 \
-    --use-enumeration \
-    --separate-independence \
-    --disable-counterexamples
+$ docker run -it <image ID>
 ```
 
-To show the results:
+Once inside the container, follow the instructions in the next section to run the experiments.
+
+## Step-by-Step Instructions
+
+Our paper evaluates results of 4 experiments:
+1. (Section 5.3) Synthesizing modal axioms for 17 modal logics (using constraint solving)
+2. (Section 5.3.3) Same as 1 but using enumeration
+3. (Section 6.3) Synthesizing equational axioms for language structures (using constraint solving)
+4. (Section 6.3.3) Same as 3 but using enumeration
+
+We have put together a Bash script to run all 4 experiments:
 ```
-python3 -m evaluations.modal show modal-results-enum.pickle
+$ evaluations/run_all.sh
 ```
 
-5. Synthesize equational axioms for language structures (with constraint solving)
-```
-python3 -m evaluations.kleene \
-    --cache kleene-cache-smt \
-    --vampire <path to the Vampire binary> \
-    --vampire-pruning
-```
-The results will be printed to stdout.
+Note that this script will take a long time.
+On a machine with a 20-core Intel Core i7-12700K CPU and 32 GB of memory,
+the experiments took the following amounts of time to finish.
+- Experiment 1: around 10 minutes
+- Experiment 2: around 20 minutes
+- Experiment 3: around 30 minutes
+- Experiment 4: around 22 hours
 
-6. Synthesize equational axioms for language structures (with naive enumeration)
+You can also comment out relevant part of the script to skip certain experiment.
+
+At the end of each experiment, the script will print a command to show the results in a more readable form.
+For example, for experiment 1, the script prints:
 ```
-python3 -m evaluations.kleene_enum --vampire <path to the Vampire binary>
+Evaluation 1. Synthesizing modal axioms for 17 modal logics (using constraint solving).
+    Results are saved to eval_results/modal-smt-results.pickle.
+    Running with 17 parallel jobs.
+    Took: ...
+To show the results: python3 -m evaluations.modal show eval_results/modal-smt-results.pickle
 ```
-The results will be printed to stdout.
-
-
-python3 -m evaluations.modal synthesize \
-    --continue \
-    --save modal-results-enumeration.pickle \
-    -j 17 \
-    --synthesis-timeout 600 \
-    --use-enumeration \
-    --separate-independence \
-    --disable-counterexamples
-
-python3 -m evaluations.kleene \
-    --cache kleene-cache-smt \
-    --vampire /home/zhengyal/work/vampire_z3_Release_static_master_4764 \
-    --vampire-pruning
+Then you can run
+```
+$ python3 -m evaluations.modal show eval_results/modal-smt-results.pickle
+```
+to show the detailed results of experiment 1, including the time taken for each component in the synthesis algorithm,
+and time at which each candidate axiom was synthesized.

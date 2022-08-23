@@ -1,8 +1,8 @@
-Synthesizing Axiomatizations with Logic Learning
+Synthesizing Axiomatizations using Logic Learning
 ---
 
 Welcome! This document describes how to perform the evaluations in the OOPSLA 22 paper
-*Synthesizing Axiomatizations with Logic Learning*.
+*Synthesizing Axiomatizations using Logic Learning*.
 
 In the following sections, we will first introduce how to set up the environment to
 run this artifact (Getting Started Guide), and then give instructions to run each

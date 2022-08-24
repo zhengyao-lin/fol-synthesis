@@ -576,11 +576,14 @@ def check_fo_implication_with_vampire(
         elif "Refutation" in termination_reasons:
             return VampireResult.PROVABLE
         
-        elif termination_reasons <= { "Unknown", "Time limit" }:
-            return VampireResult.UNKNOWN
-        
         else:
-            assert False, f"unknown vampire termination reason(s) {termination_reasons}"
+            return VampireResult.UNKNOWN
+
+        # elif termination_reasons <= { "Unknown", "Time limit" }:
+        #     return VampireResult.UNKNOWN
+        
+        # else:
+        #     assert False, f"unknown vampire termination reason(s) {termination_reasons}"
 
 
 def check_fo_implication(

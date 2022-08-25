@@ -47,7 +47,7 @@ the experiments took the following amounts of time to finish.
 - Experiment 1: around 10 minutes
 - Experiment 2: around 20 minutes
 - Experiment 3: around 30 minutes
-- Experiment 4: around 22 hours
+- Experiment 4: around 24 hours
 
 You can also comment out relevant part of the script to skip certain experiment.
 

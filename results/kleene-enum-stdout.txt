@@ -1,0 +1,162 @@
+enumerating 3244 x 3244 = 10523536 equations                                                                                        
+a:KA = concat(a:KA, one())                                                                                                          
+a:KA = concat(one(), a:KA)                                                                                                          
+a:KA = union(a:KA, a:KA)                                                                                                            
+a:KA = union(a:KA, zero())                                                                                                          
+a:KA = union(zero(), a:KA)                                                                                                          
+a:KA = concat(a:KA, closure(zero()))                                                                                                
+a:KA = concat(a:KA, closure(one()))                                                                                                 
+a:KA = union(a:KA, concat(a:KA, zero()))                                                                                            
+a:KA = union(a:KA, concat(b:KA, zero()))                                                                                            
+a:KA = union(a:KA, concat(zero(), a:KA))                                                                                            
+a:KA = union(a:KA, concat(zero(), b:KA))                                                                                            
+union(a:KA, b:KA) = union(b:KA, a:KA)                                                                                               
+union(a:KA, b:KA) = union(a:KA, union(a:KA, b:KA))                                                                                  
+closure(a:KA) = concat(union(a:KA, one()), closure(a:KA))                                                                           
+closure(a:KA) = concat(closure(a:KA), union(a:KA, one()))                                                                           
+closure(a:KA) = concat(closure(a:KA), closure(a:KA))                                                                                
+closure(a:KA) = union(a:KA, closure(a:KA))                                                                                          
+closure(a:KA) = union(one(), closure(a:KA))                                                                                         
+closure(a:KA) = union(concat(a:KA, a:KA), closure(a:KA))                                                                            
+closure(a:KA) = union(union(a:KA, one()), closure(a:KA))                                                                            
+closure(a:KA) = closure(union(a:KA, one()))                                                                                         
+closure(a:KA) = closure(closure(a:KA))                                                                                              
+concat(a:KA, concat(a:KA, a:KA)) = concat(concat(a:KA, a:KA), a:KA)                                                                 
+concat(a:KA, concat(a:KA, b:KA)) = concat(concat(a:KA, a:KA), b:KA)                                                                 
+concat(a:KA, concat(b:KA, a:KA)) = concat(concat(a:KA, b:KA), a:KA)                                                                 
+concat(a:KA, concat(b:KA, b:KA)) = concat(concat(a:KA, b:KA), b:KA)                                                                 
+concat(a:KA, union(a:KA, b:KA)) = union(concat(a:KA, a:KA), concat(a:KA, b:KA))
+concat(a:KA, union(a:KA, one())) = concat(union(a:KA, one()), a:KA)                                                        [102/337]
+concat(a:KA, union(b:KA, one())) = union(a:KA, concat(a:KA, b:KA))                                                                  
+concat(a:KA, closure(a:KA)) = concat(closure(a:KA), a:KA)                                                                           
+concat(union(a:KA, b:KA), a:KA) = union(concat(a:KA, a:KA), concat(b:KA, a:KA))                                                     
+concat(union(a:KA, one()), b:KA) = union(b:KA, concat(a:KA, b:KA))                                                                  
+concat(union(a:KA, one()), union(a:KA, one())) = union(concat(a:KA, a:KA), union(a:KA, one()))                                      
+union(a:KA, union(b:KA, one())) = union(b:KA, union(a:KA, one()))                                                                   
+union(a:KA, union(b:KA, one())) = union(one(), union(a:KA, b:KA))                                                                   
+union(a:KA, closure(b:KA)) = union(union(a:KA, b:KA), closure(b:KA))                                                                
+enumeration took 80186.5861902237s                                                                                                  
+                                                                                                                                    
+independent union(a:KA, closure(b:KA)) = union(union(a:KA, b:KA), closure(b:KA))                                                    
+independent union(a:KA, union(b:KA, one())) = union(one(), union(a:KA, b:KA))                                                       
+dependent union(a:KA, union(b:KA, one())) = union(b:KA, union(a:KA, one()))                                                         
+independent concat(union(a:KA, one()), union(a:KA, one())) = union(concat(a:KA, a:KA), union(a:KA, one()))                          
+independent concat(union(a:KA, one()), b:KA) = union(b:KA, concat(a:KA, b:KA))                                                      
+independent concat(union(a:KA, b:KA), a:KA) = union(concat(a:KA, a:KA), concat(b:KA, a:KA))                                         
+independent concat(a:KA, closure(a:KA)) = concat(closure(a:KA), a:KA)                                                               
+independent concat(a:KA, union(b:KA, one())) = union(a:KA, concat(a:KA, b:KA))                                                      
+dependent concat(a:KA, union(a:KA, one())) = concat(union(a:KA, one()), a:KA)                                                       
+independent concat(a:KA, union(a:KA, b:KA)) = union(concat(a:KA, a:KA), concat(a:KA, b:KA))                                         
+independent concat(a:KA, concat(b:KA, b:KA)) = concat(concat(a:KA, b:KA), b:KA)                                                     
+independent concat(a:KA, concat(b:KA, a:KA)) = concat(concat(a:KA, b:KA), a:KA)                                                     
+independent concat(a:KA, concat(a:KA, b:KA)) = concat(concat(a:KA, a:KA), b:KA)                                                     
+dependent concat(a:KA, concat(a:KA, a:KA)) = concat(concat(a:KA, a:KA), a:KA)                                                       
+independent closure(a:KA) = closure(closure(a:KA))                                                                                  
+independent closure(a:KA) = closure(union(a:KA, one()))                                                                             
+dependent closure(a:KA) = union(union(a:KA, one()), closure(a:KA))                                                                  
+dependent closure(a:KA) = union(concat(a:KA, a:KA), closure(a:KA))                                                                  
+dependent closure(a:KA) = union(one(), closure(a:KA))                                                                               
+dependent closure(a:KA) = union(a:KA, closure(a:KA))                                                                                
+dependent closure(a:KA) = concat(closure(a:KA), closure(a:KA))                                                                      
+dependent closure(a:KA) = concat(closure(a:KA), union(a:KA, one()))                                                                 
+independent closure(a:KA) = concat(union(a:KA, one()), closure(a:KA))
+independent union(a:KA, b:KA) = union(a:KA, union(a:KA, b:KA))                                                              [68/337]
+independent union(a:KA, b:KA) = union(b:KA, a:KA)                                                                                   
+independent a:KA = union(a:KA, concat(zero(), b:KA))                                                                                
+dependent a:KA = union(a:KA, concat(zero(), a:KA))                                                                                  
+independent a:KA = union(a:KA, concat(b:KA, zero()))                                                                                
+dependent a:KA = union(a:KA, concat(a:KA, zero()))                                                                                  
+dependent a:KA = concat(a:KA, closure(one()))                                                                                       
+independent a:KA = concat(a:KA, closure(zero()))                                                                                    
+dependent a:KA = union(zero(), a:KA)                                                                                                
+dependent a:KA = union(a:KA, zero())                                                                                                
+dependent a:KA = union(a:KA, a:KA)                                                                                                  
+dependent a:KA = concat(one(), a:KA)                                                                                                
+dependent a:KA = concat(a:KA, one())                                                                                                
+dependence check took 84.88241720199585s                                                                                            
+                                                                                                                                    
+enumerating 1179 x 1179 = 1390041 equations                                                                                         
+concat(a:KA, concat(b:KA, c:KA)) = concat(concat(a:KA, b:KA), c:KA)                                                                 
+concat(a:KA, union(b:KA, c:KA)) = union(concat(a:KA, b:KA), concat(a:KA, c:KA))                                                     
+concat(union(a:KA, b:KA), c:KA) = union(concat(a:KA, c:KA), concat(b:KA, c:KA))                                                     
+union(a:KA, union(b:KA, c:KA)) = union(b:KA, union(a:KA, c:KA))                                                                     
+enumeration took 5642.188088655472s                                                                                                 
+                                                                                                                                    
+independent union(a:KA, union(b:KA, c:KA)) = union(b:KA, union(a:KA, c:KA))                                                         
+independent concat(union(a:KA, b:KA), c:KA) = union(concat(a:KA, c:KA), concat(b:KA, c:KA))                                         
+independent concat(a:KA, union(b:KA, c:KA)) = union(concat(a:KA, b:KA), concat(a:KA, c:KA))                                         
+independent concat(a:KA, concat(b:KA, c:KA)) = concat(concat(a:KA, b:KA), c:KA)                                                     
+independent a:KA = concat(a:KA, closure(zero()))                                                                                    
+independent a:KA = union(a:KA, concat(b:KA, zero()))                                                                                
+independent a:KA = union(a:KA, concat(zero(), b:KA))                                                                                
+dependent union(a:KA, b:KA) = union(b:KA, a:KA)                                                                                     
+dependent union(a:KA, b:KA) = union(a:KA, union(a:KA, b:KA))                                                                        
+independent closure(a:KA) = concat(union(a:KA, one()), closure(a:KA))                                                               
+independent closure(a:KA) = closure(union(a:KA, one()))                                                                             
+independent closure(a:KA) = closure(closure(a:KA))
+dependent concat(a:KA, concat(a:KA, b:KA)) = concat(concat(a:KA, a:KA), b:KA)                                               [34/337]
+dependent concat(a:KA, concat(b:KA, a:KA)) = concat(concat(a:KA, b:KA), a:KA)                                                       
+dependent concat(a:KA, concat(b:KA, b:KA)) = concat(concat(a:KA, b:KA), b:KA)                                                       
+dependent concat(a:KA, union(a:KA, b:KA)) = union(concat(a:KA, a:KA), concat(a:KA, b:KA))                                           
+dependent concat(a:KA, union(b:KA, one())) = union(a:KA, concat(a:KA, b:KA))                                                        
+independent concat(a:KA, closure(a:KA)) = concat(closure(a:KA), a:KA)                                                               
+dependent concat(union(a:KA, b:KA), a:KA) = union(concat(a:KA, a:KA), concat(b:KA, a:KA))                                           
+independent concat(union(a:KA, one()), b:KA) = union(b:KA, concat(a:KA, b:KA))                                                      
+independent concat(union(a:KA, one()), union(a:KA, one())) = union(concat(a:KA, a:KA), union(a:KA, one()))                          
+dependent union(a:KA, union(b:KA, one())) = union(one(), union(a:KA, b:KA))                                                         
+independent union(a:KA, closure(b:KA)) = union(union(a:KA, b:KA), closure(b:KA))                                                    
+dependence check took 63.20165300369263s                                                                                            
+                                                                                                                                    
+final axioms:                                                                                                                       
+union(a:KA, union(b:KA, c:KA)) = union(b:KA, union(a:KA, c:KA))                                                                     
+concat(union(a:KA, b:KA), c:KA) = union(concat(a:KA, c:KA), concat(b:KA, c:KA))                                                     
+concat(a:KA, union(b:KA, c:KA)) = union(concat(a:KA, b:KA), concat(a:KA, c:KA))                                                     
+concat(a:KA, concat(b:KA, c:KA)) = concat(concat(a:KA, b:KA), c:KA)                                                                 
+a:KA = concat(a:KA, closure(zero()))                                                                                                
+a:KA = union(a:KA, concat(b:KA, zero()))                                                                                            
+a:KA = union(a:KA, concat(zero(), b:KA))                                                                                            
+closure(a:KA) = concat(union(a:KA, one()), closure(a:KA))                                                                           
+closure(a:KA) = closure(union(a:KA, one()))                                                                                         
+closure(a:KA) = closure(closure(a:KA))                                                                                              
+concat(a:KA, closure(a:KA)) = concat(closure(a:KA), a:KA)                                                                           
+concat(union(a:KA, one()), b:KA) = union(b:KA, concat(a:KA, b:KA))                                                                  
+concat(union(a:KA, one()), union(a:KA, one())) = union(concat(a:KA, a:KA), union(a:KA, one()))                                      
+union(a:KA, closure(b:KA)) = union(union(a:KA, b:KA), closure(b:KA))                                                                
+                                                                                                                                    
+# checking if our axioms are stronger than Kozen's equational axioms                                                                
+axioms => union(a:KA, union(b:KA, c:KA)) = union(union(a:KA, b:KA), c:KA): VampireResult.PROVABLE                                   
+axioms => union(a:KA, b:KA) = union(b:KA, a:KA): VampireResult.PROVABLE                                                             
+axioms => union(a:KA, zero()) = a:KA: VampireResult.PROVABLE                                                                        
+axioms => union(a:KA, a:KA) = a:KA: VampireResult.PROVABLE
+axioms => concat(a:KA, concat(b:KA, c:KA)) = concat(concat(a:KA, b:KA), c:KA): VampireResult.PROVABLE                        [0/337]
+axioms => concat(one(), a:KA) = a:KA: VampireResult.PROVABLE
+axioms => concat(a:KA, one()) = a:KA: VampireResult.PROVABLE
+axioms => concat(a:KA, union(b:KA, c:KA)) = union(concat(a:KA, b:KA), concat(a:KA, c:KA)): VampireResult.PROVABLE
+axioms => concat(union(a:KA, b:KA), c:KA) = union(concat(a:KA, c:KA), concat(b:KA, c:KA)): VampireResult.PROVABLE
+axioms => concat(zero(), a:KA) = zero(): VampireResult.PROVABLE
+axioms => concat(a:KA, zero()) = zero(): VampireResult.PROVABLE
+axioms => union(union(one(), concat(a:KA, closure(a:KA))), closure(a:KA)) = closure(a:KA): VampireResult.PROVABLE
+axioms => union(union(one(), concat(closure(a:KA), a:KA)), closure(a:KA)) = closure(a:KA): VampireResult.PROVABLE
+
+# checking if Kozen's equational axioms imply our axioms
+equational kozens => union(a:KA, union(b:KA, c:KA)) = union(b:KA, union(a:KA, c:KA)): VampireResult.PROVABLE
+equational kozens => concat(union(a:KA, b:KA), c:KA) = union(concat(a:KA, c:KA), concat(b:KA, c:KA)): VampireResult.PROVABLE
+equational kozens => concat(a:KA, union(b:KA, c:KA)) = union(concat(a:KA, b:KA), concat(a:KA, c:KA)): VampireResult.PROVABLE
+equational kozens => concat(a:KA, concat(b:KA, c:KA)) = concat(concat(a:KA, b:KA), c:KA): VampireResult.PROVABLE
+equational kozens => a:KA = concat(a:KA, closure(zero())): VampireResult.COUNTEREXAMPLE
+equational kozens => a:KA = union(a:KA, concat(b:KA, zero())): VampireResult.PROVABLE
+equational kozens => a:KA = union(a:KA, concat(zero(), b:KA)): VampireResult.PROVABLE
+equational kozens => closure(a:KA) = concat(union(a:KA, one()), closure(a:KA)): VampireResult.PROVABLE
+equational kozens => closure(a:KA) = closure(union(a:KA, one())): VampireResult.COUNTEREXAMPLE
+equational kozens => closure(a:KA) = closure(closure(a:KA)): VampireResult.COUNTEREXAMPLE
+equational kozens => concat(a:KA, closure(a:KA)) = concat(closure(a:KA), a:KA): VampireResult.COUNTEREXAMPLE
+equational kozens => concat(union(a:KA, one()), b:KA) = union(b:KA, concat(a:KA, b:KA)): VampireResult.PROVABLE
+equational kozens => concat(union(a:KA, one()), union(a:KA, one())) = union(concat(a:KA, a:KA), union(a:KA, one())): VampireResult.UNKNOWN
+equational kozens => union(a:KA, closure(b:KA)) = union(union(a:KA, b:KA), closure(b:KA)): VampireResult.PROVABLE
+
+# checking if all of Kozen's axioms imply our axioms
+kozens => a:KA = concat(a:KA, closure(zero())): VampireResult.PROVABLE
+kozens => closure(a:KA) = closure(union(a:KA, one())): VampireResult.PROVABLE
+kozens => closure(a:KA) = closure(closure(a:KA)): VampireResult.PROVABLE
+kozens => concat(a:KA, closure(a:KA)) = concat(closure(a:KA), a:KA): VampireResult.UNKNOWN
+kozens => concat(union(a:KA, one()), union(a:KA, one())) = union(concat(a:KA, a:KA), union(a:KA, one())): VampireResult.UNKNOWN
